@@ -1,0 +1,27 @@
+# Node.js
+node_modules/
+frontend/dist/
+
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# VS Code Settings
+.vscode/
+
+#environment variables
+.env
+frontend/.env
+backend/.env
+
+# roo
+/.roo
+.roomodes
+/memory-backend
+
+# This file
+
+!.gitignore
