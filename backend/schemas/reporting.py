@@ -44,14 +44,4 @@ class ClubPerformanceData(BaseModel):
     # No model_config = orm_config needed here
 
 
-# --- Resolve Forward References ---
-# Call model_rebuild here for schemas defined in *this* file that use forward refs
-# (Only MemberStatementData uses one here)
-try:
-    MemberStatementData.model_rebuild(force=True)
-    # ClubPerformanceData has no forward refs, no rebuild needed
-except NameError as e:
-     print(f"Warning: Failed to rebuild forward refs in schemas/reporting.py: {e}.")
-except Exception as e:
-     print(f"Warning: Unexpected error rebuilding forward refs in schemas/reporting.py: {e}")
 

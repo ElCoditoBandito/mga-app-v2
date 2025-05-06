@@ -9,115 +9,26 @@ from typing import Dict, Any, Sequence
 # If running locally, ensure these dependencies are met.
 # pip install sqlalchemy fastapi asyncpg psycopg2-binary python-dotenv
 # (asyncpg/psycopg2 depends on your DB dialect)
-try:
-    from sqlalchemy.ext.asyncio import AsyncSession
-    from sqlalchemy.exc import IntegrityError # Although less likely here, good practice
-    from fastapi import HTTPException, status
-    from sqlalchemy.orm import selectinload # Added for eager loading
-except ImportError:
-    # Provide fallback message if imports fail (e.g., in environments without these libs)
-    print("WARNING: SQLAlchemy or FastAPI not found. Service functions may not execute.")
-    # Define dummy types/classes if needed for the code to be syntactically valid
-    class AsyncSession: pass
-    class IntegrityError(Exception): pass
-    class HTTPException(Exception):
-        def __init__(self, status_code: int, detail: str):
-            self.status_code = status_code
-            self.detail = detail
-            super().__init__(detail)
-    class Status:
-        HTTP_400_BAD_REQUEST = 400 # Added for last admin check
-        HTTP_403_FORBIDDEN = 403 # Added for authorization
-        HTTP_404_NOT_FOUND = 404
-        HTTP_409_CONFLICT = 409
-        HTTP_500_INTERNAL_SERVER_ERROR = 500
-    status = Status()
-    def selectinload(*args): pass # Dummy decorator
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError # Although less likely here, good practice
+from fastapi import HTTPException, status
+from sqlalchemy.orm import selectinload # Added for eager loading
 
 
 # Import CRUD functions (assuming they exist in the specified paths)
 # Use try-except blocks for robustness if structure might vary
-try:
-    from backend.crud import (
-        user as crud_user,
-        club as crud_club,
-        fund as crud_fund,
-        club_membership as crud_membership,
-        member_transaction as crud_member_tx, # Added for balance check
-    )
-    # Added User model for list_user_clubs
-    from backend.models import User, Club, Fund, ClubMembership # [cite: backend_files/models/user.py, backend_files/models/club.py, backend_files/models/fund.py, backend_files/models/club_membership.py]
-    from backend.models.enums import ClubRole # [cite: backend_files/models/enums.py]
-    # Added ClubMembershipUpdate schema
-    from backend.schemas import ClubCreate, ClubMembershipUpdate # [cite: backend_files/schemas/club.py]
-except ImportError as e:
-    print(f"WARNING: Failed to import CRUD/Models/Schemas: {e}. Service functions may not work.")
-    # Define dummy classes/types if needed for syntax validity
-    class User: id: uuid.UUID; memberships: list = []
-    class Club: id: uuid.UUID; name: str
-    class Fund: id: uuid.UUID
-    class ClubMembership: id: uuid.UUID; club: Any; role: Any; user_id: uuid.UUID # Added user_id
-    class ClubRole: ADMIN = "Admin"; MEMBER = "Member" # Added MEMBER
-    class ClubCreate: name: str; description: str | None = None
-    # Added dummy schema
-    class ClubMembershipUpdate: role: ClubRole | None
-    # Dummy CRUD functions
-    class crud_user:
-        @staticmethod
-        async def get_user_by_auth0_sub(db: AsyncSession, *, auth0_sub: str) -> User | None: return User(id=uuid.uuid4()) # Return dummy user
-        # Added dummy get_user_by_email
-        @staticmethod
-        async def get_user_by_email(db: AsyncSession, *, email: str) -> User | None: return User(id=uuid.uuid4())
-    class crud_club:
-        @staticmethod
-        async def create_club(db: AsyncSession, *, club_data: Dict[str, Any]) -> Club: return Club(id=uuid.uuid4(), name=club_data.get('name',''))
-        # Added dummy get_club
-        @staticmethod
-        async def get_club(db: AsyncSession, club_id: uuid.UUID) -> Club | None: return Club(id=club_id, name="Dummy Club")
-    class crud_fund:
-        @staticmethod
-        async def create_fund(db: AsyncSession, *, fund_data: Dict[str, Any]) -> Fund: return Fund(id=uuid.uuid4())
-    class crud_membership:
-         @staticmethod
-         async def create_club_membership(db: AsyncSession, *, membership_data: Dict[str, Any]) -> ClubMembership: return ClubMembership(id=uuid.uuid4(), role=membership_data.get('role'), user_id=membership_data.get('user_id'))
-         # Added dummy get_multi_club_memberships
-         @staticmethod
-         async def get_multi_club_memberships(db: AsyncSession, *, club_id: uuid.UUID | None = None, user_id: uuid.UUID | None = None, skip: int = 0, limit: int = 100) -> Sequence[ClubMembership]:
-             # Simulate returning memberships with clubs for a user or club
-             if user_id:
-                 return [ClubMembership(id=uuid.uuid4(), club=Club(id=uuid.uuid4(), name="Dummy Club 1"), role=ClubRole.MEMBER, user_id=user_id)]
-             elif club_id:
-                 # Simulate one admin and one member for last admin check
-                 return [ClubMembership(id=uuid.uuid4(), club=Club(id=club_id), role=ClubRole.ADMIN, user_id=uuid.uuid4()), ClubMembership(id=uuid.uuid4(), club=Club(id=club_id), role=ClubRole.MEMBER, user_id=uuid.uuid4())]
-             else:
-                 return []
-         # Added dummy get_club_membership_by_user_and_club
-         @staticmethod
-         async def get_club_membership_by_user_and_club(db: AsyncSession, *, user_id: uuid.UUID, club_id: uuid.UUID) -> ClubMembership | None:
-             # Simulate finding the requestor as ADMIN, but not finding others initially
-             # Need to simulate finding the target member for removal/update
-             if str(user_id).startswith("req"): # Dummy check for requestor
-                 return ClubMembership(id=uuid.uuid4(), role=ClubRole.ADMIN, user_id=user_id)
-             elif str(user_id).startswith("target"): # Dummy check for target member
-                  return ClubMembership(id=uuid.uuid4(), role=ClubRole.MEMBER, user_id=user_id) # Simulate finding target
-             else:
-                 # Simulate finding a MEMBER for the not_admin test
-                 return ClubMembership(id=uuid.uuid4(), role=ClubRole.MEMBER, user_id=user_id)
-         # Added dummy update_club_membership
-         @staticmethod
-         async def update_club_membership(db: AsyncSession, *, db_obj: ClubMembership, obj_in: ClubMembershipUpdate) -> ClubMembership:
-             db_obj.role = obj_in.role
-             return db_obj
-         # Added dummy delete_club_membership
-         @staticmethod
-         async def delete_club_membership(db: AsyncSession, *, db_obj: ClubMembership) -> ClubMembership:
-              return db_obj # Return the object as if deleted
-    # Added dummy member_transaction crud for balance check
-    class crud_member_tx:
-         @staticmethod
-         async def get_member_unit_balance(db: AsyncSession, membership_id: uuid.UUID) -> Decimal:
-              # Simulate zero balance for removal check to pass
-              return Decimal("0.0")
+from backend.crud import (
+    user as crud_user,
+    club as crud_club,
+    fund as crud_fund,
+    club_membership as crud_membership,
+    member_transaction as crud_member_tx, # Added for balance check
+)
+# Added User model for list_user_clubs
+from backend.models import User, Club, Fund, ClubMembership # [cite: backend_files/models/user.py, backend_files/models/club.py, backend_files/models/fund.py, backend_files/models/club_membership.py]
+from backend.models.enums import ClubRole # [cite: backend_files/models/enums.py]
+# Added ClubMembershipUpdate schema
+from backend.schemas import ClubCreate, ClubMembershipUpdate # [cite: backend_files/schemas/club.py]
 
 
 # Configure logging

@@ -15,49 +15,16 @@ from pydantic import BaseModel # Added for JWT Payload model
 from dotenv import load_dotenv # Added to load env vars
 
 # Assuming FastAPI and related libraries are installed
-try:
-    from fastapi import Depends, HTTPException, status, Path
-    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials # Use HTTPBearer
-    from sqlalchemy.ext.asyncio import AsyncSession
-except ImportError:
-    print("WARNING: FastAPI or SQLAlchemy not found. Dependencies will not work.")
-    # Define dummy types/classes if needed
-    class HTTPException(Exception):
-        def __init__(self, status_code: int, detail: str | None = None, headers: dict | None = None): pass
-    class Status: HTTP_401_UNAUTHORIZED = 401; HTTP_403_FORBIDDEN = 403; HTTP_404_NOT_FOUND = 404; HTTP_500_INTERNAL_SERVER_ERROR = 500 # Added 500
-    status = Status()
-    def Depends(dependency: Any | None = None) -> Any: return None
-    def Path(default: Any = ..., *, alias: str | None = None) -> Any: return default
-    class HTTPBearer: 
-        def __init__(self, auto_error: bool = True): pass # Dummy HTTPBearer
-    class HTTPAuthorizationCredentials: credentials: str
-    class AsyncSession: pass
-    # Define Annotated for older Python versions if needed
-    try: from typing import Annotated
-    except ImportError: Annotated = None
-    class BaseModel: pass # Dummy Pydantic
+from fastapi import Depends, HTTPException, status, Path
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials # Use HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import necessary services, models, and session dependency
-try:
-    from backend.core.session import get_db_session
-    from backend.services import user_service
-    from backend.models import User, ClubMembership
-    from backend.models.enums import ClubRole
-    from backend.crud import club_membership as crud_membership
-except ImportError as e:
-    print(f"WARNING: Failed to import core dependencies: {e}. Authentication may not work.")
-    # Define dummy types/classes if needed
-    async def get_db_session() -> AsyncSession: return AsyncSession()
-    class User: id: Any; is_active: bool = True; email: str | None = None # Add email
-    class ClubMembership: role: Any
-    class ClubRole: ADMIN = "Admin"
-    class user_service:
-        @staticmethod
-        async def get_or_create_user_by_auth0(db: AsyncSession, *, auth0_sub: str, email: str) -> User: return User(id=uuid.uuid4(), email=email)
-    class crud_membership:
-        @staticmethod
-        async def get_club_membership_by_user_and_club(db: AsyncSession, *, user_id: uuid.UUID, club_id: uuid.UUID) -> ClubMembership | None:
-            return ClubMembership(role=ClubRole.ADMIN)
+from backend.core.session import get_db_session
+from backend.services import user_service
+from backend.models import User, ClubMembership
+from backend.models.enums import ClubRole
+from backend.crud import club_membership as crud_membership
 
 
 # --- Logging Configuration ---
@@ -306,25 +273,25 @@ async def require_club_admin(
     log.debug(f"User {current_user.id} confirmed as ADMIN for club {club_id}")
     return membership
 
-# --- Placeholder for require_club_member dependency ---
-# async def require_club_member(
-#     club_id: uuid.UUID = Path(..., title="The ID of the club to check membership status for"),
-#     current_user: User = Depends(get_current_active_user),
-#     db: AsyncSession = Depends(get_db_session)
-# ) -> ClubMembership:
-#     """Dependency to ensure the user is at least a MEMBER of the club."""
-#     log.debug(f"Checking MEMBER status for user {current_user.id} in club {club_id}")
-#     membership = await crud_membership.get_club_membership_by_user_and_club(
-#         db=db, user_id=current_user.id, club_id=club_id
-#     )
-#     if not membership:
-#         log.warning(f"User {current_user.id} is not a member of club {club_id}.")
-#         raise HTTPException(
-#             status_code=status.HTTP_403_FORBIDDEN, # 403 is generally better for authorization failures
-#             detail=f"User is not authorized to access this club."
-#         )
-#     # Add check for specific roles if needed (e.g., MEMBER or ADMIN)
-#     # if membership.role not in [ClubRole.ADMIN, ClubRole.MEMBER]: ...
-#     log.debug(f"User {current_user.id} confirmed as member of club {club_id}")
-#     return membership
+# --- Club Member Dependency ---
+async def require_club_member(
+    club_id: uuid.UUID = Path(..., title="The ID of the club to check membership status for"),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_session)
+) -> ClubMembership:
+    """Dependency to ensure the user is at least a MEMBER of the club."""
+    log.debug(f"Checking MEMBER status for user {current_user.id} in club {club_id}")
+    membership = await crud_membership.get_club_membership_by_user_and_club(
+        db=db, user_id=current_user.id, club_id=club_id
+    )
+    if not membership:
+        log.warning(f"User {current_user.id} is not a member of club {club_id}.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, # 403 is generally better for authorization failures
+            detail=f"User is not authorized to access this club."
+        )
+    # Add check for specific roles if needed (e.g., MEMBER or ADMIN)
+    # if membership.role not in [ClubRole.ADMIN, ClubRole.MEMBER]: ...
+    log.debug(f"User {current_user.id} confirmed as member of club {club_id}")
+    return membership
 

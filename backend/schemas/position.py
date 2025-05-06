@@ -37,17 +37,3 @@ class PositionRead(PositionBase):
     asset: 'AssetReadBasic' # Nest basic asset details
     fund: 'FundReadBasic' # Nest basic fund details
     model_config = orm_config
-
-# --- Resolve Forward References ---
-# Explicitly rebuild models defined in *this file* that use forward references.
-log.debug("Attempting model rebuild in schemas/position.py...")
-try:
-    PositionRead.model_rebuild(force=True)
-    log.debug("Model rebuild successful in schemas/position.py.")
-except NameError as e:
-     log.error(f"FAILED model rebuild in schemas/position.py (NameError): {e}. Check import order in __init__.py or dependencies.")
-     # Don't raise here, let centralized rebuild try later if needed
-except Exception as e:
-     log.error(f"FAILED model rebuild in schemas/position.py (Other Error): {e}", exc_info=True)
-     # Don't raise here
-

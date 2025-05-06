@@ -5,49 +5,14 @@ import logging
 from typing import List, Any, Sequence # Added Sequence
 
 # Assuming FastAPI and related libraries are installed
-try:
-    from fastapi import APIRouter, Depends, HTTPException, status, Path, Query, Body
-    from sqlalchemy.ext.asyncio import AsyncSession
-except ImportError:
-    print("WARNING: FastAPI or SQLAlchemy not found. API endpoints will not work.")
-    # Define dummy types/classes if needed
-    class APIRouter:
-        def post(self, *args, **kwargs): pass
-        def get(self, *args, **kwargs): pass
-    def Depends(dependency: Any | None = None) -> Any: return None
-    class HTTPException(Exception): pass
-    class Status: HTTP_201_CREATED = 201; HTTP_500_INTERNAL_SERVER_ERROR = 500; HTTP_404_NOT_FOUND = 404; HTTP_403_FORBIDDEN = 403; HTTP_400_BAD_REQUEST = 400; HTTP_409_CONFLICT = 409; HTTP_200_OK = 200; HTTP_422_UNPROCESSABLE_ENTITY = 422
-    status = Status()
-    def Path(*args, **kwargs): return uuid.uuid4()
-    def Query(*args, **kwargs): return None
-    def Body(*args, **kwargs): return None
-    class AsyncSession: pass
+from fastapi import APIRouter, Depends, HTTPException, status, Path, Query, Body
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import dependencies, schemas, services, models
-try:
-    from backend.api.dependencies import get_db_session, get_current_active_user
-    from backend.schemas import AssetRead, AssetCreateStock, AssetCreateOption # Import asset schemas
-    from backend.services import asset_service # Import the relevant service
-    from backend.models import User, Asset # Import User and Asset models
-except ImportError as e:
-    print(f"WARNING: Failed to import dependencies/schemas/services: {e}. Asset endpoints may not work.")
-    # Define dummy types/classes if needed
-    async def get_db_session() -> AsyncSession: return AsyncSession()
-    async def get_current_active_user() -> User: return User(id=uuid.uuid4(), is_active=True, auth0_sub="dummy|sub")
-    class AssetRead: pass
-    class AssetCreateStock: pass
-    class AssetCreateOption: pass
-    class User: id: uuid.UUID; is_active: bool; auth0_sub: str = "dummy|sub"
-    class Asset: pass # Dummy model
-    class asset_service:
-        @staticmethod
-        async def get_or_create_stock_asset(db: AsyncSession, *, asset_in: AssetCreateStock) -> Asset: return Asset()
-        @staticmethod
-        async def get_or_create_option_asset(db: AsyncSession, *, asset_in: AssetCreateOption) -> Asset: return Asset()
-        @staticmethod
-        async def list_assets(db: AsyncSession, *, skip: int = 0, limit: int = 100) -> Sequence[Asset]: return [Asset()]
-        @staticmethod
-        async def get_asset_by_id(db: AsyncSession, asset_id: uuid.UUID) -> Asset: return Asset()
+from backend.api.dependencies import get_db_session, get_current_active_user
+from backend.schemas import AssetRead, AssetCreateStock, AssetCreateOption # Import asset schemas
+from backend.services import asset_service # Import the relevant service
+from backend.models import User, Asset # Import User and Asset models
 
 
 # Configure logging

@@ -1,51 +1,76 @@
-# System Patterns *Optional*
+# System Patterns
 
 This file documents recurring patterns and standards used in the project.
-It is optional, but recommended to be updated as the project evolves.
-2025-04-16 00:27:30 - Log of updates made.
-2025-04-18 17:35:00 - Updated to reflect full completion of Sprint 1 with all tests passing.
-2025-04-18 16:11:00 - Updated to reflect testing patterns established in Sprint 1.
-2025-04-18 17:50:00 - Updated to include patterns for investment-related components in Sprint 2.
-
-*
+2025-05-05 08:33:00 - Initial creation based on codebase analysis.
 
 ## Coding Patterns
 
-*   Backend: Follow FastAPI best practices, use SQLAlchemy ORM patterns, Pydantic for validation.
-*   Frontend: Follow React best practices, utilize hooks, component-based architecture. TypeScript for type safety.
-*   Investment Models:
-    *   Use Pydantic validators for investment-related data (e.g., positive quantities, valid transaction types).
-    *   Implement transaction-driven position updates (positions reflect transaction history).
-    *   Use mock data for assets during Sprint 2, with Alpha Vantage integration planned for Sprint 3.
-    *   Ensure proper relationships between models (Fund → Portfolio → Positions/Transactions).
+* **Async/Await Pattern**: 
+  * All database operations use async SQLAlchemy
+  * API endpoints are async functions
+  * Service functions are async and orchestrate CRUD operations
+
+* **Dependency Injection**:
+  * FastAPI dependency system for database sessions
+  * Authentication and authorization via dependencies
+  * Service dependencies injected where needed
+
+* **Error Handling**:
+  * Consistent use of HTTPException with appropriate status codes
+  * Detailed error messages with proper logging
+  * Try/except blocks with specific exception handling
+
+* **Validation**:
+  * Pydantic models for request/response validation
+  * Type hints throughout the codebase
+  * Explicit validation in service functions
+
+* **Logging**:
+  * Consistent logging patterns with appropriate levels
+  * Contextual information in log messages
+  * Error details captured in exception handling
 
 ## Architectural Patterns
 
-*   Monorepo structure.
-*   RESTful API design for backend.
-*   Client-side rendering (CSR) with React.
-*   Token-based authentication (JWT with Auth0).
-*   Service layer for API calls in frontend (using TanStack Query).
-*   State management with Zustand in frontend.
-*   Investment hierarchy: Club → Fund → Portfolio → Positions/Transactions.
-*   Role-based access control for investment operations.
-*   Transaction-driven position updates (positions reflect transaction history).
-*   Performance snapshots for point-in-time portfolio valuation.
+* **Layered Architecture**:
+  * API Layer: FastAPI routers and endpoints
+  * Service Layer: Business logic and orchestration
+  * CRUD Layer: Database operations
+  * Model Layer: SQLAlchemy models
 
-*   Backend: Comprehensive unit tests with `pytest` (65 passing tests).
+* **Repository Pattern**:
+  * CRUD modules encapsulate database operations
+  * Service layer never directly manipulates models
+  * Consistent interface for database operations
+
+* **Unit Value Accounting**:
+  * NAV (Net Asset Value) calculation
+  * Unit-based equity tracking
+  * Transaction processing affects unit balances
+
+* **Multi-tenancy**:
+  * Club-based isolation of data
+  * Role-based access control within clubs
+  * User membership determines access
+
+* **Event-based Transactions**:
+  * Financial transactions trigger calculations
+  * Unit value history tracks changes over time
+  * Member equity calculated based on unit holdings
 
 ## Testing Patterns
 
-*   Backend: Unit tests with `pytest`.
-    *   Test fixtures in `conftest.py` for database sessions, authentication, and test clients.
-    *   Separate tests for CRUD functions and API endpoints.
-    *   Mock dependencies using `unittest.mock.patch` to isolate components.
-    *   Test both success and failure scenarios for all endpoints.
-    *   Ensure proper fixture dependencies for authorization tests:
-        *   Include all required fixtures in test functions to establish complete database relationships
-        *   For nested resources (e.g., fund memberships), ensure parent-child relationships are properly set up
-        *   For authorization tests, ensure the authenticated user has the appropriate memberships/roles
-    *   Test authorization rules and edge cases.
-*   Frontend: Component tests with React Testing Library.
-*   End-to-end tests with Cypress (Sprint 4).
-*   Integration tests for API (Sprint 4).
+* **Fixture-based Testing**:
+  * Pytest fixtures for database setup
+  * Alembic migrations in test environment
+  * Isolated test database
+
+* **Mocking**:
+  * Mock external services (e.g., Alpha Vantage API)
+  * Mock database sessions for unit tests
+  * Mock authentication for API tests
+
+* **Test Categories**:
+  * Unit tests for CRUD operations
+  * Service layer tests with mocked dependencies
+  * Integration tests for API endpoints

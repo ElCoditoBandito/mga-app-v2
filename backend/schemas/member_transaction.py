@@ -20,8 +20,9 @@ log = logging.getLogger(__name__) # Logger for rebuild messages
 
 if TYPE_CHECKING:
     # Use real imports for type checking
-    from .user import UserReadBasic
-    from .club import ClubReadBasic
+    from .user import UserReadBasic # Keep UserReadBasic if needed elsewhere
+    from .club import ClubReadBasic # Keep ClubReadBasic if needed elsewhere
+    from .club import ClubMembershipRead # Import the required nested schema
 
 
 class MemberTransactionBase(BaseModel):
@@ -52,6 +53,19 @@ class MemberTransactionCreate(BaseModel):
 # class MemberTransactionUpdate(BaseModel): ...
 
 
+class MemberTransactionReadBasic(BaseModel):
+    id: uuid.UUID
+    membership_id: uuid.UUID = Field(..., description="Identifier for the associated club membership")
+    transaction_type: MemberTransactionType = Field(..., description="Type of transaction (Deposit, Withdrawal)")
+    transaction_date: datetime = Field(..., description="Date and time the transaction occurred")
+    amount: Decimal = Field(..., max_digits=15, decimal_places=2, description="Cash amount deposited or withdrawn")
+    notes: Optional[str] = Field(None, description="Optional notes for the transaction")
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = orm_config
+
+
 class MemberTransactionRead(MemberTransactionBase):
     id: uuid.UUID
     # Fields calculated on creation are now mandatory for read
@@ -61,22 +75,8 @@ class MemberTransactionRead(MemberTransactionBase):
     created_at: datetime
     updated_at: datetime
     # Use forward references for nested user/club info via membership
-    user: 'UserReadBasic' # Accessed via membership.user
-    club: 'ClubReadBasic' # Accessed via membership.club
+    membership: 'ClubMembershipRead' # Expect nested membership object
     notes: Optional[str] = None
 
     model_config = orm_config
-
-# --- Resolve Forward References ---
-# Explicitly rebuild models defined in *this file* that use forward references.
-log.debug("Attempting model rebuild in schemas/member_transaction.py...")
-try:
-    MemberTransactionRead.model_rebuild(force=True)
-    log.debug("Model rebuild successful in schemas/member_transaction.py.")
-except NameError as e:
-     log.error(f"FAILED model rebuild in schemas/member_transaction.py (NameError): {e}. Check import order in __init__.py or dependencies.")
-     # Don't raise here, let centralized rebuild try later if needed
-except Exception as e:
-     log.error(f"FAILED model rebuild in schemas/member_transaction.py (Other Error): {e}", exc_info=True)
-     # Don't raise here
 

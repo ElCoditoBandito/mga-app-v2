@@ -5,31 +5,13 @@ import logging
 from typing import Any # Added Any for dummy types
 
 # Assuming FastAPI and related libraries are installed
-try:
-    from fastapi import APIRouter, Depends, HTTPException, status
-    from sqlalchemy.ext.asyncio import AsyncSession # Not strictly needed here, but good practice
-except ImportError:
-    print("WARNING: FastAPI or SQLAlchemy not found. API endpoints will not work.")
-    # Define dummy types/classes if needed
-    class APIRouter:
-        def get(self, *args, **kwargs): pass
-    def Depends(dependency: Any | None = None) -> Any: return None
-    class HTTPException(Exception): pass
-    class Status: HTTP_200_OK = 200 # Add status codes used
-    status = Status()
-    class AsyncSession: pass
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession # Not strictly needed here, but good practice
 
 # Import dependencies, schemas, models
-try:
-    from backend.api.dependencies import get_current_active_user # Import the core dependency
-    from backend.schemas import UserRead # Import the response schema
-    from backend.models import User # Import the User model for type hinting
-except ImportError as e:
-    print(f"WARNING: Failed to import dependencies/schemas/models: {e}. User endpoints may not work.")
-    # Define dummy types/classes if needed
-    async def get_current_active_user() -> User: return User(id=uuid.uuid4(), is_active=True, auth0_sub="dummy|sub", email="dummy@example.com") # Add email for dummy
-    class UserRead: pass # Dummy schema
-    class User: id: uuid.UUID; is_active: bool; auth0_sub: str = "dummy|sub"; email: str = "dummy@example.com" # Add email
+from backend.api.dependencies import get_current_active_user # Import the core dependency
+from backend.schemas import UserRead # Import the response schema
+from backend.models import User # Import the User model for type hinting
 
 
 # Configure logging

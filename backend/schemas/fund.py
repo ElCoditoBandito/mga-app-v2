@@ -110,9 +110,3 @@ class FundSplitItem(BaseModel):
     def percentage_must_be_positive_and_le_one(cls, v: Decimal) -> Decimal:
         # ... (validation logic) ...
         return v
-
-# --- Resolve Forward Refs ---
-# Centralized rebuild call moved to schemas/__init__.py
-# FundRead.model_rebuild()
-# FundReadWithPositions.model_rebuild()
-# FundSplitRead.model_rebuild()

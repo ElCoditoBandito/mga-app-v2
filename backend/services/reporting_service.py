@@ -52,7 +52,10 @@ async def get_club_portfolio_report(
         .options(
             selectinload(Club.funds) # Load funds related to the club
             .selectinload(Fund.positions) # Load positions related to each fund
-            .selectinload(Position.asset) # Load the asset related to each position
+            .options(
+                selectinload(Position.asset), # Load the asset related to each position
+                selectinload(Position.fund)  # Load the fund related to each position
+            )
         )
     )
     result = await db.execute(stmt)
@@ -106,12 +109,18 @@ async def get_club_portfolio_report(
         try:
             # Ensure relationships needed by PositionRead (asset, fund) are loaded
             # The initial query with selectinload should handle this
+            # --- TEMPORARY DEBUGGING: Inspect pos_model before validation ---
+            log.debug(f"DEBUG: Inspecting pos_model {pos_model.id}:")
+            log.debug(f"  pos_model.asset: {getattr(pos_model, 'asset', 'NOT LOADED OR NONE')}")
+            log.debug(f"  pos_model.fund: {getattr(pos_model, 'fund', 'NOT LOADED OR NONE')}")
+            log.debug(f"  pos_model data: {pos_model.__dict__}") # Log internal dict
+            # --- END TEMPORARY DEBUGGING ---
             pos_read = PositionRead.model_validate(pos_model)
             aggregated_positions_read.append(pos_read)
         except Exception as e:
             # Log error if validation fails for a specific position
             asset_symbol = pos_model.asset.symbol if pos_model.asset else 'N/A'
-            log.error(f"Error validating Position model {pos_model.id} (Asset: {asset_symbol}) to schema: {e}. Skipping position in report.")
+            log.error(f"Error validating Position model {pos_model.id} (Asset: {asset_symbol}) to schema: {e}. Skipping position in report.", exc_info=True)
 
     # 5. Calculate Total Cash Value
     total_cash_value = club.bank_account_balance + total_brokerage_cash
@@ -164,18 +173,29 @@ async def get_member_statement(
     # 2. Get Member Transactions
     # Use limit=0 to fetch all transactions for the statement
     member_tx_models = await crud_member_tx.get_multi_member_transactions(
-        db=db, membership_id=membership.id, limit=0
+        db=db, membership_id=membership.id # Removed limit=0
     )
 
     # Validate transactions against the read schema
     member_tx_reads: list[MemberTransactionRead] = []
     for tx_model in member_tx_models:
         try:
-            # Ensure relationships needed by schema (user, club via membership) are loaded
-            # crud_member_tx.get_multi_member_transactions should handle this
+            # --- TEMPORARY DEBUGGING: Explicitly load relationships ---
+            log.debug(f"DEBUG: Refreshing relationships for tx {tx_model.id}")
+            await db.refresh(tx_model, attribute_names=['membership'])
+            if tx_model.membership:
+                 await db.refresh(tx_model.membership, attribute_names=['user', 'club'])
+                 log.debug(f"DEBUG: Refreshed membership {tx_model.membership_id}, user {tx_model.membership.user_id}, club {tx_model.membership.club_id}")
+            else:
+                 log.warning(f"DEBUG: Membership relationship not loaded for tx {tx_model.id}")
+            # --- END TEMPORARY DEBUGGING ---
+
+            # Now attempt validation
             member_tx_reads.append(MemberTransactionRead.model_validate(tx_model))
+            log.debug(f"DEBUG: Successfully validated tx {tx_model.id}")
         except Exception as e:
-            log.error(f"Error validating MemberTransaction model {tx_model.id} to schema: {e}")
+            log.error(f"Error validating MemberTransaction model {tx_model.id} to schema: {e}", exc_info=True) # Add exc_info for more detail
+            # raise e # TEMPORARILY RE-RAISE TO DEBUG - Removed
 
     # 3. Get Current Unit Balance
     try:

@@ -7,56 +7,16 @@ from decimal import Decimal
 from datetime import date
 
 # Assuming SQLAlchemy and FastAPI are installed in the environment
-try:
-    from sqlalchemy.ext.asyncio import AsyncSession
-    from sqlalchemy.exc import IntegrityError
-    from fastapi import HTTPException, status
-    # Removed selectinload as it's not used directly in this service file
-except ImportError:
-    # Provide fallback message if imports fail
-    print("WARNING: SQLAlchemy or FastAPI not found. Service functions may not execute.")
-    # Define dummy types/classes if needed
-    class AsyncSession: pass
-    class IntegrityError(Exception): pass
-    class HTTPException(Exception):
-        def __init__(self, status_code: int, detail: str):
-            self.status_code = status_code
-            self.detail = detail
-            super().__init__(detail)
-    class Status:
-        HTTP_404_NOT_FOUND = 404
-        HTTP_409_CONFLICT = 409
-        HTTP_422_UNPROCESSABLE_ENTITY = 422
-        HTTP_500_INTERNAL_SERVER_ERROR = 500
-    status = Status()
-    # def selectinload(*args): pass # Dummy decorator
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException, status
+# Removed selectinload as it's not used directly in this service file
 
 # Import CRUD functions, Models, Schemas, and Enums
-try:
-    from backend.crud import asset as crud_asset
-    from backend.models import Asset # [cite: backend_files/models/asset.py]
-    from backend.models.enums import AssetType, Currency, OptionType # [cite: backend_files/models/enums.py]
-    from backend.schemas import AssetCreateStock, AssetCreateOption # [cite: backend_files/schemas/asset.py]
-except ImportError as e:
-    print(f"WARNING: Failed to import CRUD/Models/Schemas/Enums: {e}. Service functions may not work.")
-    # Define dummy types/classes if needed
-    class Asset: id: uuid.UUID; symbol: str; asset_type: str; currency: str; underlying_asset: Any = None; name: str | None = None; underlying_asset_id: uuid.UUID | None = None; option_type: Any = None; strike_price: Any = None; expiration_date: Any = None
-    class AssetType: STOCK = "Stock"; OPTION = "Option"
-    class Currency: USD = "USD"
-    class OptionType: CALL = "Call"; PUT = "Put"
-    class AssetCreateStock: symbol: str; name: str | None
-    class AssetCreateOption: underlying_symbol: str; option_type: OptionType; strike_price: Decimal; expiration_date: date; name: str | None
-    class crud_asset:
-        @staticmethod
-        async def get_asset_by_symbol(db: AsyncSession, symbol: str) -> Asset | None: return None
-        @staticmethod
-        async def create_asset(db: AsyncSession, *, asset_data: Dict[str, Any]) -> Asset: return Asset(id=uuid.uuid4(), symbol=asset_data.get('symbol',''), asset_type=asset_data.get('asset_type',''), currency=asset_data.get('currency',''), name=asset_data.get('name'))
-        @staticmethod
-        async def get_option_by_contract_details(db: AsyncSession, *, underlying_asset_id: uuid.UUID, option_type: OptionType, strike_price: Decimal, expiration_date: date) -> Asset | None: return None
-        @staticmethod
-        async def get_asset(db: AsyncSession, asset_id: uuid.UUID) -> Asset | None: return Asset(id=asset_id, symbol="DUMMY", asset_type="Stock", currency="USD")
-        @staticmethod
-        async def get_multi_assets(db: AsyncSession, *, skip: int = 0, limit: int = 100) -> Sequence[Asset]: return [Asset(id=uuid.uuid4(), symbol="DUMMY", asset_type="Stock", currency="USD")]
+from backend.crud import asset as crud_asset
+from backend.models import Asset # [cite: backend_files/models/asset.py]
+from backend.models.enums import AssetType, Currency, OptionType # [cite: backend_files/models/enums.py]
+from backend.schemas import AssetCreateStock, AssetCreateOption # [cite: backend_files/schemas/asset.py]
 
 
 # Configure logging

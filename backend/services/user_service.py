@@ -5,40 +5,13 @@ import logging # Import logging
 from typing import Dict, Any
 
 # Assuming SQLAlchemy and FastAPI are installed in the environment
-try:
-    from sqlalchemy.ext.asyncio import AsyncSession
-    from sqlalchemy.exc import IntegrityError
-    from fastapi import HTTPException, status
-except ImportError:
-    # Provide fallback message if imports fail
-    print("WARNING: SQLAlchemy or FastAPI not found. Service functions may not execute.")
-    # Define dummy types/classes if needed
-    class AsyncSession: pass
-    class IntegrityError(Exception): pass
-    class HTTPException(Exception):
-        def __init__(self, status_code: int, detail: str):
-            self.status_code = status_code
-            self.detail = detail
-            super().__init__(detail)
-    class Status:
-        HTTP_409_CONFLICT = 409
-        HTTP_500_INTERNAL_SERVER_ERROR = 500
-    status = Status()
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException, status
 
 # Import CRUD functions and Models
-try:
-    from backend.crud import user as crud_user
-    from backend.models import User # [cite: backend_files/models/user.py]
-except ImportError as e:
-    # Use logging here too if possible, though it might fail early
-    print(f"WARNING: Failed to import CRUD/Models: {e}. Service functions may not work.")
-    # Define dummy classes/types if needed
-    class User: id: uuid.UUID; email: str; auth0_sub: str
-    class crud_user:
-        @staticmethod
-        async def get_user_by_auth0_sub(db: AsyncSession, *, auth0_sub: str) -> User | None: return None
-        @staticmethod
-        async def create_user(db: AsyncSession, *, user_data: Dict[str, Any]) -> User: return User(id=uuid.uuid4(), email=user_data.get('email',''), auth0_sub=user_data.get('auth0_sub',''))
+from backend.crud import user as crud_user
+from backend.models import User # [cite: backend_files/models/user.py]
 
 # Configure logging for this module
 log = logging.getLogger(__name__)

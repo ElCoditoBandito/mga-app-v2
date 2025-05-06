@@ -7,88 +7,30 @@ from typing import Dict, Any, Tuple, Sequence, Union # Added Union
 from datetime import datetime
 
 # Assuming SQLAlchemy and FastAPI are installed in the environment
-try:
-    from sqlalchemy.ext.asyncio import AsyncSession
-    from sqlalchemy.exc import IntegrityError
-    from fastapi import HTTPException, status
-except ImportError:
-    print("WARNING: SQLAlchemy or FastAPI not found. Service functions may not execute.")
-    # Define dummy types/classes if needed
-    class AsyncSession: pass
-    class IntegrityError(Exception): pass
-    class HTTPException(Exception):
-        def __init__(self, status_code: int, detail: str):
-            self.status_code = status_code
-            self.detail = detail
-            super().__init__(detail)
-    class Status:
-        HTTP_400_BAD_REQUEST = 400
-        HTTP_404_NOT_FOUND = 404
-        HTTP_409_CONFLICT = 409
-        HTTP_422_UNPROCESSABLE_ENTITY = 422
-        HTTP_500_INTERNAL_SERVER_ERROR = 500
-    status = Status()
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException, status
 
 # Import CRUD functions, Models, Schemas, and Enums
-try:
-    from backend.crud import (
-        transaction as crud_transaction,
-        position as crud_position,
-        fund as crud_fund,
-        asset as crud_asset,
-        club as crud_club,
-        fund_split as crud_fund_split,
-    )
-    # Added Club model and FundSplit model
-    from backend.models import Transaction, Position, Fund, Asset, Club, FundSplit # [cite: backend_files/models/transaction.py, backend_files/models/position.py, backend_files/models/fund.py, backend_files/models/asset.py, backend_files/models/club.py, backend_files/models/fund_split.py]
-    # Import specific transaction types and OptionType
-    from backend.models.enums import TransactionType, OptionType # [cite: backend_files/models/enums.py]
-    # Import specific schemas
-    from backend.schemas import ( # Added TransactionCreateCashTransfer, TransactionCreateOptionLifecycle
-        TransactionCreateTrade,
-        TransactionCreateDividendBrokerageInterest,
-        TransactionCreateCashTransfer,
-        TransactionCreateOptionLifecycle,
-    ) # [cite: backend_files/schemas/transaction.py]
-except ImportError as e:
-    print(f"WARNING: Failed to import CRUD/Models/Schemas/Enums: {e}. Service functions may not work.")
-    # Define dummy types/classes if needed
-    class Transaction: id: uuid.UUID; quantity: Decimal
-    class Position: id: uuid.UUID; quantity: Decimal; average_cost_basis: Decimal
-    class Fund: id: uuid.UUID; name: str; brokerage_cash_balance: Decimal; club_id: uuid.UUID
-    class Asset: id: uuid.UUID; underlying_asset_id: uuid.UUID | None; strike_price: Decimal | None; asset_type: str; option_type: OptionType | None; symbol: str
-    class Club: id: uuid.UUID; bank_account_balance: Decimal
-    class FundSplit: fund_id: uuid.UUID; split_percentage: Decimal
-    class OptionType: CALL = "Call"; PUT = "Put"
-    class TransactionType: BUY_STOCK = "BuyStock"; SELL_STOCK = "SellStock"; BUY_OPTION = "BuyOption"; SELL_OPTION = "SellOption"; CLOSE_OPTION_BUY = "CloseOptionBuy"; CLOSE_OPTION_SELL = "CloseOptionSell"; DIVIDEND = "Dividend"; BROKERAGE_INTEREST = "BrokerageInterest"; BANK_TO_BROKERAGE = "BankToBrokerage"; BROKERAGE_TO_BANK = "BrokerageToBank"; INTERFUND_CASH_TRANSFER = "InterfundCashTransfer"; OPTION_EXPIRATION = "OptionExpiration"; OPTION_EXERCISE = "OptionExercise"; OPTION_ASSIGNMENT = "OptionAssignment"
-    class TransactionCreateTrade: asset_id: uuid.UUID; fund_id: uuid.UUID | None = None; transaction_type: TransactionType; quantity: Decimal; price_per_unit: Decimal; fees_commissions: Decimal; transaction_date: Any; description: str | None
-    class TransactionCreateDividendBrokerageInterest: fund_id: uuid.UUID | None = None; asset_id: uuid.UUID | None = None; transaction_type: TransactionType; total_amount: Decimal; transaction_date: Any; description: str | None; fees_commissions: Decimal
-    class TransactionCreateCashTransfer: transaction_type: Any; fund_id: uuid.UUID | None = None; target_fund_id: uuid.UUID | None = None; total_amount: Decimal; transaction_date: Any; description: str | None; fees_commissions: Decimal
-    class TransactionCreateOptionLifecycle: fund_id: uuid.UUID | None = None; asset_id: uuid.UUID; transaction_type: TransactionType; quantity: Decimal; transaction_date: datetime; description: str | None; fees_commissions: Decimal
-    class crud_transaction:
-        @staticmethod 
-        async def create_transaction(db: AsyncSession, *, transaction_data: dict) -> Transaction: return Transaction(id=uuid.uuid4(), quantity=Decimal("1"))
-        @staticmethod 
-        async def get_transaction(db: AsyncSession, transaction_id: uuid.UUID) -> Transaction | None: return Transaction(id=transaction_id)
-        @staticmethod 
-        async def get_multi_transactions(db: AsyncSession, *, skip: int = 0, limit: int = 100, club_id: uuid.UUID | None = None, fund_id: uuid.UUID | None = None, asset_id: uuid.UUID | None = None) -> Sequence[Transaction]: return [Transaction(id=uuid.uuid4())] # Added club_id
-    class crud_position:
-        @staticmethod 
-        async def get_position_by_fund_and_asset(db: AsyncSession, *, fund_id: uuid.UUID, asset_id: uuid.UUID) -> Position | None: return Position(id=uuid.uuid4(), quantity=Decimal("1"), average_cost_basis=Decimal("1"))
-        @staticmethod 
-        async def create_position(db: AsyncSession, *, position_data: dict) -> Position: return Position(id=uuid.uuid4(), quantity=Decimal("1"), average_cost_basis=Decimal("1"))
-    class crud_fund:
-        @staticmethod 
-        async def get_fund(db: AsyncSession, fund_id: uuid.UUID) -> Fund | None: return Fund(id=fund_id, name="Dummy Fund", brokerage_cash_balance=Decimal("100000"), club_id=uuid.uuid4())
-    class crud_asset:
-        @staticmethod 
-        async def get_asset(db: AsyncSession, asset_id: uuid.UUID) -> Asset | None: return Asset(id=asset_id, underlying_asset_id=uuid.uuid4(), strike_price=Decimal("100"), asset_type="Option", option_type=OptionType.CALL, symbol="DUMMY")
-    class crud_club:
-        @staticmethod
-        async def get_club(db: AsyncSession, club_id: uuid.UUID) -> Club | None: return Club(id=club_id, bank_account_balance=Decimal("5000"))
-    class crud_fund_split:
-        @staticmethod 
-        async def get_fund_splits_by_club(db: AsyncSession, *, club_id: uuid.UUID) -> Sequence[FundSplit]: return [FundSplit(fund_id=uuid.uuid4(), split_percentage=Decimal("1.0"))]
+from backend.crud import (
+    transaction as crud_transaction,
+    position as crud_position,
+    fund as crud_fund,
+    asset as crud_asset,
+    club as crud_club,
+    fund_split as crud_fund_split,
+)
+# Added Club model and FundSplit model
+from backend.models import Transaction, Position, Fund, Asset, Club, FundSplit # [cite: backend_files/models/transaction.py, backend_files/models/position.py, backend_files/models/fund.py, backend_files/models/asset.py, backend_files/models/club.py, backend_files/models/fund_split.py]
+# Import specific transaction types and OptionType
+from backend.models.enums import TransactionType, OptionType # [cite: backend_files/models/enums.py]
+# Import specific schemas
+from backend.schemas import ( # Added TransactionCreateCashTransfer, TransactionCreateOptionLifecycle
+    TransactionCreateTrade,
+    TransactionCreateDividendBrokerageInterest,
+    TransactionCreateCashTransfer,
+    TransactionCreateOptionLifecycle,
+) # [cite: backend_files/schemas/transaction.py]
 
 # Configure logging for this module
 log = logging.getLogger(__name__)

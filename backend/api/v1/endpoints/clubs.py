@@ -6,141 +6,32 @@ from typing import List, Any, Sequence
 from datetime import date, datetime
 from decimal import Decimal
 
-try:
-    from fastapi import APIRouter, Depends, HTTPException, status, Path, Query, Body
-    from sqlalchemy.ext.asyncio import AsyncSession
-    from pydantic import BaseModel, EmailStr, Field, conlist
-except ImportError:
-    # Dummy imports...
-    class APIRouter:
-        def post(self, *args, **kwargs): pass
-        def get(self, *args, **kwargs): pass
-        def put(self, *args, **kwargs): pass
-        def delete(self, *args, **kwargs): pass
-    def Depends(dependency: Any | None = None) -> Any: return None
-    class HTTPException(Exception): pass
-    class Status: HTTP_201_CREATED = 201; HTTP_500_INTERNAL_SERVER_ERROR = 500; HTTP_404_NOT_FOUND = 404; HTTP_403_FORBIDDEN = 403; HTTP_400_BAD_REQUEST = 400; HTTP_409_CONFLICT = 409; HTTP_200_OK = 200; HTTP_204_NO_CONTENT = 204
-    status = Status()
-    def Path(*args, **kwargs): return uuid.uuid4()
-    def Query(*args, **kwargs): return date.today()
-    def Body(*args, **kwargs): return None
-    class AsyncSession: pass
-    class BaseModel: pass
-    class EmailStr: pass
-    def Field(*args, **kwargs): return None
-    def conlist(*args, **kwargs): return list
+from fastapi import APIRouter, Depends, HTTPException, status, Path, Query, Body
+from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel, EmailStr, Field, conlist
 
 # Import dependencies, schemas, services, models
-try:
-    from backend.api.dependencies import (
-        get_db_session, get_current_active_user,
-        require_club_admin, require_club_member
-    )
-    from backend.schemas import (
-        ClubCreate, ClubRead, ClubReadBasic, ClubPortfolio, ClubUpdate,
-        ClubMembershipRead, ClubMembershipUpdate, ClubMembershipReadBasicUser,
-        MemberTransactionRead, MemberTransactionCreate, MemberTransactionReadBasic, # Added Basic Read
-        UnitValueHistoryRead,
-        FundRead, FundReadBasic, FundUpdate,
-        FundSplitRead, FundSplitItem
-    )
-    from backend.services.reporting_service import ClubPerformanceData, MemberStatementData
-    from backend.services import (
-        club_service, reporting_service, accounting_service,
-        fund_service, fund_split_service # Added new services
-    )
-    from backend.models import User, Club, ClubMembership, ClubRole, MemberTransaction, UnitValueHistory, Fund, FundSplit
-    from backend.models.enums import MemberTransactionType
-    # Import specific CRUD needed
-    from backend.crud import club as crud_club, fund as crud_fund, member_transaction as crud_member_tx, club_membership as crud_membership
-except ImportError as e:
-    print(f"WARNING: Failed to import dependencies/schemas/services: {e}. Club endpoints may not work.")
-    # Dummy definitions...
-    async def get_db_session() -> AsyncSession: return AsyncSession()
-    async def get_current_active_user() -> User: return User(id=uuid.uuid4(), is_active=True, auth0_sub="dummy|sub")
-    async def require_club_admin(*args, **kwargs) -> ClubMembership: return ClubMembership(id=uuid.uuid4(), role=ClubRole.ADMIN)
-    async def require_club_member(*args, **kwargs) -> ClubMembership: return ClubMembership(id=uuid.uuid4(), role=ClubRole.MEMBER)
-    class ClubCreate: name: str; description: str | None = None
-    class ClubRead: pass
-    class ClubReadBasic: pass
-    class ClubPortfolio: pass
-    class ClubUpdate: pass
-    class ClubMembershipRead: pass
-    class ClubMembershipUpdate: role: Any
-    class ClubMembershipReadBasicUser: pass
-    class MemberTransactionRead: pass
-    class MemberTransactionCreate: user_id: uuid.UUID; club_id: uuid.UUID; transaction_type: Any; amount: Decimal; transaction_date: Any; notes: str | None
-    class MemberTransactionReadBasic: pass
-    class UnitValueHistoryRead: pass
-    class FundRead: pass
-    class FundReadBasic: pass
-    class FundUpdate: pass
-    class FundSplitRead: pass
-    class FundSplitItem: fund_id: uuid.UUID; split_percentage: Decimal
-    class ClubPerformanceData: pass
-    class MemberStatementData: pass
-    class club_service:
-        @staticmethod
-        async def create_club(db: AsyncSession, *, club_in: ClubCreate, auth0_sub: str) -> Club: return Club(id=uuid.uuid4(), name=club_in.name)
-        @staticmethod
-        async def list_user_clubs(db: AsyncSession, *, auth0_sub: str) -> List[Club]: return [Club(id=uuid.uuid4(), name="Club 1")]
-        @staticmethod
-        async def get_club_details(db: AsyncSession, *, club_id: uuid.UUID) -> Club: return Club(id=club_id)
-        @staticmethod
-        async def add_club_member(db: AsyncSession, *, club_id: uuid.UUID, member_email: str, role: ClubRole, requesting_user: User) -> ClubMembership: return ClubMembership(id=uuid.uuid4())
-        @staticmethod
-        async def update_member_role(db: AsyncSession, *, club_id: uuid.UUID, member_user_id: uuid.UUID, new_role: ClubRole, requesting_user: User) -> ClubMembership: return ClubMembership(id=uuid.uuid4())
-        @staticmethod
-        async def remove_club_member(db: AsyncSession, *, club_id: uuid.UUID, member_user_id: uuid.UUID, requesting_user: User) -> ClubMembership: return ClubMembership(id=uuid.uuid4())
-    class reporting_service:
-        @staticmethod
-        async def get_club_portfolio_report(db: AsyncSession, *, club_id: uuid.UUID, valuation_date: date) -> ClubPortfolio: return ClubPortfolio()
-        @staticmethod
-        async def get_club_performance(db: AsyncSession, *, club_id: uuid.UUID, start_date: date, end_date: date) -> ClubPerformanceData: return ClubPerformanceData()
-        @staticmethod
-        async def get_member_statement(db: AsyncSession, *, club_id: uuid.UUID, user_id: uuid.UUID) -> MemberStatementData: return MemberStatementData()
-    class accounting_service:
-        @staticmethod
-        async def process_member_deposit(db: AsyncSession, *, deposit_in: MemberTransactionCreate) -> MemberTransaction: return MemberTransaction()
-        @staticmethod
-        async def process_member_withdrawal(db: AsyncSession, *, withdrawal_in: MemberTransactionCreate) -> MemberTransaction: return MemberTransaction()
-        @staticmethod
-        async def calculate_and_store_nav(db: AsyncSession, *, club_id: uuid.UUID, valuation_date: date) -> UnitValueHistory: return UnitValueHistory()
-    class fund_service:
-        @staticmethod
-        async def update_fund_details(*args, **kwargs) -> Fund: return Fund(id=uuid.uuid4(), name="Updated Fund")
-    class fund_split_service:
-         @staticmethod
-         async def set_fund_splits_for_club(*args, **kwargs) -> Sequence[FundSplit]: return [FundSplit(id=uuid.uuid4())]
-         @staticmethod
-         async def get_fund_splits_for_club(*args, **kwargs) -> Sequence[FundSplit]: return [FundSplit(id=uuid.uuid4())]
-    class User: id: uuid.UUID; is_active: bool; auth0_sub: str = "dummy|sub"
-    class Club: id: uuid.UUID; name: str = "Dummy Club"
-    class ClubMembership: id: uuid.UUID; role: Any = "Admin"; user_id: uuid.UUID = uuid.uuid4()
-    class MemberTransaction: pass
-    class UnitValueHistory: pass
-    class Fund: id: uuid.UUID; club_id: uuid.UUID = uuid.uuid4(); name: str = "Dummy Fund"; is_active: bool = True
-    class FundSplit: id: uuid.UUID
-    class ClubRole: MEMBER="Member"; ADMIN="Admin"
-    class MemberTransactionType: DEPOSIT="Deposit"; WITHDRAWAL="Withdrawal"
-    class crud_club:
-        @staticmethod
-        async def get_club(db: AsyncSession, club_id: uuid.UUID) -> Club | None: return Club(id=club_id, name="Dummy Club")
-        @staticmethod
-        async def update_club(db: AsyncSession, *, db_obj: Club, obj_in: ClubUpdate) -> Club: return db_obj
-    class crud_fund:
-        @staticmethod
-        async def get_fund(db: AsyncSession, fund_id: uuid.UUID) -> Fund | None: return Fund(id=fund_id, club_id=uuid.uuid4())
-        @staticmethod
-        async def get_multi_funds(db: AsyncSession, *, club_id: uuid.UUID, limit: int) -> Sequence[Fund]: return [Fund(id=uuid.uuid4())]
-    class crud_member_tx:
-        @staticmethod
-        async def get_multi_member_transactions(db: AsyncSession, *, membership_id: uuid.UUID | None = None, club_id: uuid.UUID | None = None, skip: int = 0, limit: int = 100) -> Sequence[MemberTransaction]: return []
-    class crud_membership:
-        @staticmethod
-        async def get_club_membership_by_user_and_club(db: AsyncSession, *, user_id: uuid.UUID, club_id: uuid.UUID) -> ClubMembership | None: return ClubMembership(id=uuid.uuid4())
-        @staticmethod
-        async def get_multi_club_memberships(db: AsyncSession, *, club_id: uuid.UUID, limit: int) -> Sequence[ClubMembership]: return [ClubMembership(id=uuid.uuid4())]
+from backend.api.dependencies import (
+    get_db_session, get_current_active_user,
+    require_club_admin, require_club_member
+)
+from backend.schemas import (
+    ClubCreate, ClubRead, ClubReadBasic, ClubPortfolio, ClubUpdate,
+    ClubMembershipRead, ClubMembershipUpdate, ClubMembershipReadBasicUser,
+    MemberTransactionRead, MemberTransactionCreate, MemberTransactionReadBasic, # Added Basic Read
+    UnitValueHistoryRead,
+    FundRead, FundReadBasic, FundUpdate,
+    FundSplitRead, FundSplitItem
+)
+from backend.services.reporting_service import ClubPerformanceData, MemberStatementData
+from backend.services import (
+    club_service, reporting_service, accounting_service,
+    fund_service, fund_split_service # Added new services
+)
+from backend.models import User, Club, ClubMembership, MemberTransaction, UnitValueHistory, Fund, FundSplit
+from backend.models.enums import MemberTransactionType, ClubRole
+# Import specific CRUD needed
+from backend.crud import club as crud_club, fund as crud_fund, member_transaction as crud_member_tx, club_membership as crud_membership
 
 
 # Configure logging

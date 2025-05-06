@@ -21,7 +21,7 @@ class AssetReadBasic(BaseModel):
     asset_type: AssetType
     symbol: str
     name: Optional[str] = None
-    currency: str
+    currency: Currency # Changed type hint from str to Currency enum
     option_type: Optional[OptionType] = None
     strike_price: Optional[Decimal] = Field(None, max_digits=12, decimal_places=4)
     expiration_date: Optional[date] = None

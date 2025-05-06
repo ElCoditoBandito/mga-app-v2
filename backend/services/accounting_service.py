@@ -12,78 +12,28 @@ import httpx # Added for async HTTP requests
 from dotenv import load_dotenv # Added to load env vars
 
 # Assuming SQLAlchemy and FastAPI are installed in the environment
-try:
-    from sqlalchemy.ext.asyncio import AsyncSession
-    from sqlalchemy.exc import IntegrityError
-    from fastapi import HTTPException, status
-    from sqlalchemy.orm import selectinload
-    from sqlalchemy import select
-except ImportError:
-    # Dummy imports...
-    print("WARNING: SQLAlchemy or FastAPI not found. Service functions may not execute.")
-    class AsyncSession: pass
-    class IntegrityError(Exception): pass
-    class HTTPException(Exception): pass
-    class Status: HTTP_400_BAD_REQUEST=400; HTTP_404_NOT_FOUND=404; HTTP_409_CONFLICT=409; HTTP_422_UNPROCESSABLE_ENTITY=422; HTTP_500_INTERNAL_SERVER_ERROR=500; HTTP_503_SERVICE_UNAVAILABLE=503 # Added 503
-    status = Status()
-    def selectinload(*args): pass
-    def select(*args): pass
-    class BaseModel: pass
-    def Field(*args, **kwargs): return None
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException, status
+from sqlalchemy.orm import selectinload
+from sqlalchemy import select
 
 
 # Import CRUD functions, Models, Schemas, and other Services
-try:
-    from backend.crud import (
-        member_transaction as crud_member_tx,
-        unit_value_history as crud_unit_value,
-        club_membership as crud_membership,
-        club as crud_club,
-        fund as crud_fund,
-        position as crud_position,
-        asset as crud_asset # Added asset CRUD
-    )
-    from backend.models import (
-        MemberTransaction, UnitValueHistory, ClubMembership, Club, Position, Fund, Asset
-    )
-    from backend.models.enums import MemberTransactionType, AssetType # Added AssetType
-    from backend.schemas import MemberTransactionCreate # Removed unused schema imports
-except ImportError as e:
-    print(f"WARNING: Failed to import dependencies: {e}. Accounting service may not work.")
-    # Dummy definitions...
-    class MemberTransaction: id: uuid.UUID; units_transacted: Decimal
-    class UnitValueHistory: unit_value: Decimal; valuation_date: date; id: uuid.UUID
-    class ClubMembership: id: uuid.UUID
-    class Club: id: uuid.UUID; bank_account_balance: Decimal; funds: list = []
-    class Position: id: uuid.UUID; asset_id: uuid.UUID; quantity: Decimal; asset: Any; fund_id: uuid.UUID; average_cost_basis: Decimal; created_at: Any; updated_at: Any
-    class Fund: id: uuid.UUID; brokerage_cash_balance: Decimal; positions: list = []
-    class Asset: id: uuid.UUID; symbol: str; asset_type: str # Added asset_type
-    class MemberTransactionType: DEPOSIT = "Deposit"; WITHDRAWAL = "Withdrawal"
-    class AssetType: STOCK = "Stock"; OPTION = "Option" # Added AssetType enum dummy
-    class MemberTransactionCreate: user_id: uuid.UUID; club_id: uuid.UUID; transaction_type: MemberTransactionType; amount: Decimal; transaction_date: datetime; notes: str | None # Added notes
-    class crud_member_tx:
-        @staticmethod
-        async def create_member_transaction(*args, **kwargs) -> MemberTransaction: return MemberTransaction(id=uuid.uuid4(), units_transacted=Decimal("0"))
-        @staticmethod
-        async def get_member_unit_balance(db: AsyncSession, *, membership_id: uuid.UUID) -> Decimal: return Decimal("100.0")
-        @staticmethod
-        async def get_total_units_for_club(db: AsyncSession, *, club_id: uuid.UUID) -> Decimal: return Decimal("1000.0")
-    class crud_unit_value:
-        @staticmethod
-        async def get_latest_unit_value_for_club(*args, **kwargs) -> UnitValueHistory | None: return UnitValueHistory(unit_value=Decimal("10.0"), valuation_date=date.today(), id=uuid.uuid4())
-        @staticmethod
-        async def create_unit_value_history(*args, **kwargs) -> UnitValueHistory: return UnitValueHistory(unit_value=Decimal("10.5"), id=uuid.uuid4(), valuation_date=date.today())
-    class crud_membership:
-        @staticmethod
-        async def get_club_membership_by_user_and_club(*args, **kwargs) -> ClubMembership | None: return ClubMembership(id=uuid.uuid4())
-    class crud_club:
-        @staticmethod
-        async def get_club(*args, **kwargs) -> Club | None: return Club(id=uuid.uuid4(), bank_account_balance=Decimal("10000"), funds=[])
-    class crud_fund: pass
-    class crud_position: pass
-    class crud_asset:
-        @staticmethod
-        async def get_asset(db: AsyncSession, asset_id: uuid.UUID) -> Asset | None: return Asset(id=asset_id, symbol=f"DUMMY_{asset_id.hex[:4]}", asset_type=AssetType.STOCK)
+from backend.crud import (
+    member_transaction as crud_member_tx,
+    unit_value_history as crud_unit_value,
+    club_membership as crud_membership,
+    club as crud_club,
+    fund as crud_fund,
+    position as crud_position,
+    asset as crud_asset # Added asset CRUD
+)
+from backend.models import (
+    MemberTransaction, UnitValueHistory, ClubMembership, Club, Position, Fund, Asset
+)
+from backend.models.enums import MemberTransactionType, AssetType # Added AssetType
+from backend.schemas import MemberTransactionCreate # Removed unused schema imports
 
 
 # --- Alpha Vantage Configuration ---

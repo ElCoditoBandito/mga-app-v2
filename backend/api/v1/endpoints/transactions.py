@@ -4,79 +4,24 @@ import uuid
 import logging
 from typing import List, Any, Sequence, Union
 
-try:
-    from fastapi import APIRouter, Depends, HTTPException, status, Path, Query, Body
-    from sqlalchemy.ext.asyncio import AsyncSession
-    from pydantic import BaseModel
-except ImportError:
-    # Dummy imports...
-    class APIRouter:
-        def post(self, *args, **kwargs): pass
-        def get(self, *args, **kwargs): pass
-    def Depends(dependency: Any | None = None) -> Any: return None
-    class HTTPException(Exception): pass
-    class Status: HTTP_201_CREATED = 201; HTTP_500_INTERNAL_SERVER_ERROR = 500; HTTP_404_NOT_FOUND = 404; HTTP_403_FORBIDDEN = 403; HTTP_400_BAD_REQUEST = 400; HTTP_409_CONFLICT = 409; HTTP_200_OK = 200; HTTP_422_UNPROCESSABLE_ENTITY = 422
-    status = Status()
-    def Path(*args, **kwargs): return uuid.uuid4()
-    def Query(*args, **kwargs): return None
-    def Body(*args, **kwargs): return None
-    class AsyncSession: pass
-    class BaseModel: pass
+from fastapi import APIRouter, Depends, HTTPException, status, Path, Query, Body
+from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
 
 # Import dependencies, schemas, services, models
-try:
-    from backend.api.dependencies import (
-        get_db_session, get_current_active_user,
-        require_club_admin, require_club_member
-    )
-    from backend.schemas import (
-        TransactionRead, TransactionCreateTrade,
-        TransactionCreateDividendBrokerageInterest,
-        TransactionCreateCashTransfer, TransactionCreateOptionLifecycle,
-        TransactionReadBasic # Added Basic Read
-    )
-    from backend.services import transaction_service
-    from backend.models import User, ClubMembership, Fund, Transaction
-    from backend.crud import fund as crud_fund, transaction as crud_transaction # Added transaction crud
-except ImportError as e:
-    print(f"WARNING: Failed to import dependencies/schemas/services: {e}. Transaction endpoints may not work.")
-    # Dummy definitions...
-    async def get_db_session() -> AsyncSession: return AsyncSession()
-    async def get_current_active_user() -> User: return User(id=uuid.uuid4(), is_active=True, auth0_sub="dummy|sub")
-    async def require_club_admin(*args, **kwargs) -> ClubMembership: return ClubMembership(id=uuid.uuid4())
-    async def require_club_member(*args, **kwargs) -> ClubMembership: return ClubMembership(id=uuid.uuid4())
-    class TransactionRead: pass
-    class TransactionCreateTrade: fund_id: uuid.UUID | None = None
-    class TransactionCreateDividendBrokerageInterest: fund_id: uuid.UUID | None = None; transaction_type: Any
-    class TransactionCreateCashTransfer: transaction_type: Any
-    class TransactionCreateOptionLifecycle: fund_id: uuid.UUID | None = None; transaction_type: Any; asset_id: uuid.UUID
-    class TransactionReadBasic: pass
-    class User: id: uuid.UUID; is_active: bool; auth0_sub: str = "dummy|sub"
-    class ClubMembership: id: uuid.UUID
-    class Fund: club_id: uuid.UUID
-    class Transaction: id: uuid.UUID; fund: Fund | None = None # Add relationship for check
-    class transaction_service:
-        @staticmethod
-        async def process_trade_transaction(db: AsyncSession, *, trade_in: TransactionCreateTrade) -> Any: return {"id": uuid.uuid4()}
-        @staticmethod
-        async def process_cash_receipt_transaction(db: AsyncSession, *, cash_receipt_in: TransactionCreateDividendBrokerageInterest) -> Any: return {"id": uuid.uuid4()}
-        @staticmethod
-        async def process_cash_transfer_transaction(db: AsyncSession, *, transfer_in: TransactionCreateCashTransfer, club_id: uuid.UUID) -> Union[Transaction, Sequence[Transaction], None]: return Transaction(id=uuid.uuid4())
-        @staticmethod
-        async def process_option_lifecycle_transaction(db: AsyncSession, *, lifecycle_in: TransactionCreateOptionLifecycle) -> Transaction: return Transaction(id=uuid.uuid4())
-        @staticmethod
-        async def list_transactions(db: AsyncSession, *, club_id: uuid.UUID, fund_id: uuid.UUID | None = None, asset_id: uuid.UUID | None = None, skip: int = 0, limit: int = 100) -> Sequence[Transaction]: return [Transaction(id=uuid.uuid4())]
-        # Add dummy get_transaction_by_id if needed by endpoints
-        @staticmethod
-        async def get_transaction_by_id(db: AsyncSession, transaction_id: uuid.UUID) -> Transaction: return Transaction(id=transaction_id)
-    class crud_fund:
-        @staticmethod
-        async def get_fund(db: AsyncSession, fund_id: uuid.UUID) -> Fund | None: return Fund(club_id=uuid.uuid4())
-    class crud_transaction:
-        @staticmethod
-        async def get_transaction(db: AsyncSession, transaction_id: uuid.UUID) -> Transaction | None:
-             # Simulate finding a transaction belonging to a dummy club
-             return Transaction(id=transaction_id, fund=Fund(club_id=uuid.uuid4()))
+from backend.api.dependencies import (
+    get_db_session, get_current_active_user,
+    require_club_admin, require_club_member
+)
+from backend.schemas import (
+    TransactionRead, TransactionCreateTrade,
+    TransactionCreateDividendBrokerageInterest,
+    TransactionCreateCashTransfer, TransactionCreateOptionLifecycle,
+    TransactionReadBasic # Added Basic Read
+)
+from backend.services import transaction_service
+from backend.models import User, ClubMembership, Fund, Transaction
+from backend.crud import fund as crud_fund, transaction as crud_transaction # Added transaction crud
 
 
 # Configure logging

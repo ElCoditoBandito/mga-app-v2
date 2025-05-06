@@ -24,7 +24,7 @@ from sqlalchemy.pool import NullPool
 
 # --- Logging Setup ---
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG, # Changed default level to DEBUG
     format='%(asctime)s %(levelname)-8s %(name)s:%(lineno)d - %(message)s'
 )
 logging.getLogger('alembic').setLevel(logging.INFO)

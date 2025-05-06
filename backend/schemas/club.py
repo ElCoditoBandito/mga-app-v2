@@ -97,19 +97,5 @@ class ClubPortfolio(BaseModel):
     recent_unit_value: Optional['UnitValueHistoryRead'] = None # Forward reference
     model_config = orm_config
 
-# --- Resolve Forward References ---
-# Explicitly rebuild models defined in *this file* that use forward references.
-log.debug("Attempting model rebuild in schemas/club.py...")
-try:
-    ClubRead.model_rebuild(force=True)
-    ClubMembershipRead.model_rebuild(force=True)
-    ClubMembershipReadBasicUser.model_rebuild(force=True)
-    ClubPortfolio.model_rebuild(force=True) # Add rebuild for ClubPortfolio
-    log.debug("Model rebuild successful in schemas/club.py.")
-except NameError as e:
-     log.error(f"FAILED model rebuild in schemas/club.py (NameError): {e}. Check import order in __init__.py or dependencies.")
-     # Don't raise here, let centralized rebuild try later if needed
-except Exception as e:
-     log.error(f"FAILED model rebuild in schemas/club.py (Other Error): {e}", exc_info=True)
-     # Don't raise here
+
 

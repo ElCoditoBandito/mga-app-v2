@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime # Use datetime
+import logging # Import logging at module level
 from typing import Sequence, Dict, Any # Import Dict, Any
 from decimal import Decimal # Import Decimal
 
@@ -12,6 +13,8 @@ from sqlalchemy.orm import aliased, selectinload # Import aliased if needed for 
 # Import models needed for join
 from backend.models import MemberTransaction, ClubMembership, User, Club # Added User, Club
 from backend.models.enums import MemberTransactionType # Keep for potential logic
+
+log = logging.getLogger(__name__) # Define logger at module level
 
 # Member Transactions (deposits/withdrawals) are typically immutable.
 # Corrections usually involve creating reversal/adjusting transactions.
@@ -91,7 +94,8 @@ async def get_multi_member_transactions(
     )
     result = await db.execute(stmt)
     # Add unique() for safety with joins
-    return result.unique().scalars().all()
+    rows = result.unique().scalars().all()
+    return rows
 
 
 # --- EXISTING FUNCTION ---
