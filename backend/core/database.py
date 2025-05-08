@@ -12,7 +12,7 @@ Handles database configuration loading and defines the SQLAlchemy Base.
 import logging
 import os
 
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 from sqlalchemy.orm import declarative_base
 
 # --- Logging Setup ---
@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 # --- Load Environment Variables ---
 # Load .env file when this module is first imported.
 # Subsequent calls to get_sync_url/get_async_url will read the *current* env var state.
-load_dotenv()
+# load_dotenv()
 
 
 # --- Shared Declarative Base ---

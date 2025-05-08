@@ -43,19 +43,20 @@ async def get_or_create_user_by_auth0(
     user = await crud_user.get_user_by_auth0_sub(db=db, auth0_sub=auth0_sub) # [cite: backend_files/crud/user.py]
 
     if user:
-        log.info(f"Found existing user for auth0_sub: {auth0_sub}")
+        log.info(f"Found existing user for auth0_sub: {auth0_sub}, user_id: {user.id}")
         return user
     else:
         # 2. User not found, attempt to create them
-        log.info(f"User not found for auth0_sub: {auth0_sub}. Attempting creation with email: {email}.")
+        log.info(f"User not found for auth0_sub: {auth0_sub}. Creating new user with email: {email}.")
         user_data = {
             "auth0_sub": auth0_sub,
             "email": email,
             # is_active defaults to True in CRUD/model [cite: backend_files/crud/user.py, backend_files/models/user.py]
         }
         try:
+            log.info(f"Calling crud_user.create_user with data: {user_data}")
             new_user = await crud_user.create_user(db=db, user_data=user_data) # [cite: backend_files/crud/user.py]
-            log.info(f"Successfully created new user (ID: {new_user.id}) for auth0_sub: {auth0_sub}") # [cite: backend_files/models/user.py]
+            log.info(f"Successfully created new user (ID: {new_user.id}) for auth0_sub: {auth0_sub}, email: {email}") # [cite: backend_files/models/user.py]
             return new_user
         except IntegrityError as e:
             # This likely means the email already exists, but the auth0_sub didn't match.

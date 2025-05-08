@@ -9,7 +9,7 @@ from typing import Dict, Any, Sequence, List, Optional
 
 # Third-party imports
 import httpx # Added for async HTTP requests
-from dotenv import load_dotenv # Added to load env vars
+# from dotenv import load_dotenv # Added to load env vars
 
 # Assuming SQLAlchemy and FastAPI are installed in the environment
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,7 +37,7 @@ from backend.schemas import MemberTransactionCreate # Removed unused schema impo
 
 
 # --- Alpha Vantage Configuration ---
-load_dotenv()
+# load_dotenv()
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/query"
 

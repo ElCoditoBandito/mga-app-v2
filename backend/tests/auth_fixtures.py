@@ -28,14 +28,17 @@ def mock_auth0_token_verification():
     async def mock_verify_token(token: str) -> JWTPayload:
         """Mock implementation that returns a predefined payload."""
         # Create a fake payload that matches the JWTPayload model
-        return JWTPayload(
-            sub="auth0|test_user",
-            iss=f"https://test-domain.auth0.com/",
-            aud=["test-audience"],
-            iat=int(datetime.now(timezone.utc).timestamp()),
-            exp=int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()),
-            email="test@example.com"
-        )
+        # Include the custom org_id claim in the raw payload
+        payload = {
+            "sub": "auth0|test_user",
+            "iss": "https://test-domain.auth0.com/",
+            "aud": ["test-audience"],
+            "iat": int(datetime.now(timezone.utc).timestamp()),
+            "exp": int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()),
+            "email": "test@example.com",
+            "https://api.mga-app.com/org_id": "test_org_id"  # Add the organization ID claim
+        }
+        return JWTPayload(**payload)
     
     return mock_verify_token
 

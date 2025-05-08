@@ -35,9 +35,10 @@ async def read_users_me(
     The dependency `get_current_active_user` handles authentication
     and fetching/creating the user record.
     """
-    log.info(f"Request received for /users/me by user {current_user.id}")
+    log.info(f"Request received for /users/me by user {current_user.id} (email: {current_user.email}, auth0_sub: {current_user.auth0_sub})")
     # The dependency already fetched the user object.
     # FastAPI will automatically validate and serialize it using the UserRead model.
+    log.info(f"Returning user data for ID: {current_user.id}")
     return current_user
 
 # --- Add other user-related endpoints here if needed ---

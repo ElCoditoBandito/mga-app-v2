@@ -40,6 +40,9 @@ def load_env() -> None:
 
     load_dotenv()
     os.environ['TESTING'] = 'True'
+    
+    # Set Auth0 whitelist organization ID for tests
+    os.environ['AUTH0_WHITELIST_ORGANIZATION_ID'] = 'test_org_id'
 
 
 # --- Database URL Fixtures ---

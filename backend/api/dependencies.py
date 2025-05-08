@@ -11,8 +11,8 @@ from datetime import datetime, timedelta, timezone # Added timedelta for cache c
 import httpx # Added for async HTTP requests
 from jose import jwt, JWTError # Added JWT handling
 from jose.exceptions import ExpiredSignatureError, JWKError # Added specific JOSE errors
-from pydantic import BaseModel # Added for JWT Payload model
-from dotenv import load_dotenv # Added to load env vars
+from pydantic import BaseModel, Field # Added Field for aliasing namespaced claims
+# from dotenv import load_dotenv # Added to load env vars
 
 # Assuming FastAPI and related libraries are installed
 from fastapi import Depends, HTTPException, status, Path
@@ -31,11 +31,14 @@ from backend.crud import club_membership as crud_membership
 log = logging.getLogger(__name__)
 
 # --- Auth0 Configuration ---
-load_dotenv() # Ensure environment variables are loaded
+# load_dotenv() # Ensure environment variables are loaded
 
 AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN")
 AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE")
 ALGORITHMS = ["RS256"]
+
+# Define the namespace for Auth0 custom claims
+AUTH0_NAMESPACE = "https://api.mga-app.com/"
 
 # Validate required environment variables
 if not AUTH0_DOMAIN:
@@ -62,8 +65,12 @@ class JWTPayload(BaseModel):
     azp: Optional[str] = None
     scope: Optional[str] = None
     permissions: Optional[List[str]] = None
-    # Add email if it's expected directly in the token (configure in Auth0 rule/action)
-    email: Optional[str] = None # Make optional, might not always be present
+    # Standard email claim (might be present in some configurations)
+    email: Optional[str] = None
+    # Namespaced email claim from Auth0 Action
+    namespaced_email: Optional[str] = Field(None, alias=f"{AUTH0_NAMESPACE}email")
+    # Namespaced organization ID claim from Auth0
+    namespaced_org_id: Optional[str] = Field(None, alias=f"{AUTH0_NAMESPACE}org_id")
 
 # --- JWKS Fetching Function ---
 async def get_jwks() -> Dict[str, Any]:
@@ -151,6 +158,19 @@ async def verify_token(token: str) -> JWTPayload:
             issuer=f"https://{AUTH0_DOMAIN}/", # Verify issuer matches your Auth0 domain
         )
         log.debug("Token decoded successfully.")
+        
+        # Log the raw payload keys for debugging
+        log.debug(f"Raw token payload keys: {list(payload.keys())}")
+        
+        # Check if there are any keys that might contain the email
+        email_related_keys = [k for k in payload.keys() if 'email' in k.lower()]
+        if email_related_keys:
+            log.debug(f"Found email-related keys in token: {email_related_keys}")
+            
+        # Check specifically for the namespaced email
+        namespaced_email_key = f"{AUTH0_NAMESPACE}email"
+        if namespaced_email_key in payload:
+            log.debug(f"Found namespaced email in token: {namespaced_email_key} = {payload[namespaced_email_key]}")
 
         # Validate payload structure using Pydantic model
         # This also extracts relevant fields like sub and email if present
@@ -190,31 +210,73 @@ async def get_current_active_user(
     4. Check if the local user is active.
     Returns the active local User model instance.
     """
-    log.debug("Attempting to get current active user...")
+    log.info("Attempting to get current active user...")
     token = token_creds.credentials # Extract token string
 
     try:
         # Verify the token using the actual verification function
+        log.info("Verifying token...")
         payload: JWTPayload = await verify_token(token)
         log.debug(f"Token verified for sub: {payload.sub}")
 
+        # Defense-in-depth: Verify user belongs to whitelisted Auth0 organization
+        whitelist_org_id = os.environ.get("AUTH0_WHITELIST_ORGANIZATION_ID")
+        
+        if not whitelist_org_id:
+            log.error("Server configuration error: AUTH0_WHITELIST_ORGANIZATION_ID environment variable not set")
+            raise HTTPException(
+                status_code=500,
+                detail="Server configuration error: Whitelist org not defined."
+            )
+        
+        # Get organization ID directly from the Pydantic model field
+        token_org_id = payload.namespaced_org_id
+        
+        if token_org_id is None:
+            log.warning("Access attempt with missing organization claim: payload.namespaced_org_id is None")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Missing required organization information."
+            )
+        
+        if token_org_id != whitelist_org_id:
+            log.warning(f"Access attempt with invalid organization ID: {token_org_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Invalid organization."
+            )
+        
+        log.info(f"User authenticated with valid organization ID: {token_org_id}")
+
         auth0_sub = payload.sub
         # --- Get Email ---
-        # Prioritize email from token payload if available (more direct)
-        # Otherwise, you might need another way (e.g., call Auth0 /userinfo endpoint - more complex)
-        email = payload.email
+        # Check for email in different possible locations
+        # 1. Try the namespaced email claim first (from Auth0 Action)
+        # 2. Fall back to standard email claim if present
+        email = payload.namespaced_email or payload.email
+        
+        # Log which email source was used for debugging
+        if payload.namespaced_email:
+            log.info(f"Using namespaced email claim ({AUTH0_NAMESPACE}email) for user {auth0_sub}: {email}")
+        elif payload.email:
+            log.info(f"Using standard email claim for user {auth0_sub}: {email}")
+            
         if not email:
             # If email is not in the token, you MUST configure Auth0
             # (e.g., using Actions/Rules) to add it, or fetch it separately.
             # Raising an error here as email is required by get_or_create_user_by_auth0.
             log.error(f"Email claim missing from validated token for sub: {auth0_sub}. Check Auth0 Action/Rule.")
+            # Dump token payload for debugging
+            log.error(f"Token payload keys: {[k for k in payload.model_dump().keys()]}")
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User email could not be determined from token.")
         # --- End Get Email ---
 
         # Get or create local user based on validated Auth0 sub and email
+        log.info(f"Calling user_service.get_or_create_user_by_auth0 with auth0_sub: {auth0_sub}, email: {email}")
         user = await user_service.get_or_create_user_by_auth0(
             db=db, auth0_sub=auth0_sub, email=email
         ) # [cite: backend/services/user_service.py]
+        log.info(f"User service returned user with ID: {user.id}")
 
         if not user.is_active:
             log.warning(f"Authentication successful, but user {user.id} ({user.email}) is inactive.")
