@@ -1,89 +1,65 @@
-// src/App.tsx
-import { Routes, Route } from 'react-router-dom'; // Removed useNavigate, useLocation
+
+// frontend/src/App.tsx
+import { Routes, Route } from 'react-router-dom';
 import { useAuth0 } from '@auth0/auth0-react';
-// import { useEffect } from 'react'; // Removed useEffect
-
-// No longer import LoginPage if you're removing the /login route entirely due to direct redirect
-// import LoginPage from './pages/LoginPage';
 import ProtectedRoute from './components/auth/ProtectedRoute';
-import { AuthNav } from './components/layout/AuthNav';
-// import { User } from 'lucide-react';
+import { MainLayout } from './components/layout/MainLayout'; // Updated import
+import { Skeleton } from '@/components/ui/skeleton'; // For loading state
 
-// Import the actual UserLandingPage component instead of using a placeholder
-import UserLandingPage from './pages/UserLandingPage';
-const ClubDashboardPage = () => <div className="p-4"><h2 className="text-xl font-semibold">Club Dashboard</h2></div>;
-const FundDetailPage = () => <div className="p-4"><h2 className="text-xl font-semibold">Fund Detail</h2></div>;
-const PortfolioPage = () => <div className="p-4"><h2 className="text-xl font-semibold">Portfolio</h2></div>;
-const BrokerageTransactionsPage = () => <div className="p-4"><h2 className="text-xl font-semibold">Brokerage Transactions</h2></div>;
-const MembersPage = () => <div className="p-4"><h2 className="text-xl font-semibold">Members</h2></div>;
-const ClubAccountingPage = () => <div className="p-4"><h2 className="text-xl font-semibold">Club Accounting</h2></div>;
-const SettingsPage = () => <div className="p-4"><h2 className="text-xl font-semibold">Settings</h2></div>;
-const NotFoundPage = () => <div className="p-4"><h2 className="text-xl font-semibold">404 - Page Not Found</h2></div>;
+// Import Page Components
+// For now, using placeholders. Actual page components will be created later.
+import UserLandingPage from './pages/UserLandingPage'; // Assuming this exists as per initial review
 
-const MainLayout = ({ children }: { children: React.ReactNode }) => (
-  <div>
-    <header className="p-4 bg-gray-800 text-white flex justify-between items-center sticky top-0 z-50 shadow-md">
-      <h1 className="text-xl font-bold">Social Investment Club</h1>
-      <AuthNav />
-    </header>
-    {/* Ensure content doesn't hide under sticky header */}
-    <main className="pt-16 md:pt-20">{/* Adjust padding-top based on header height */}
-        <div className="container mx-auto px-4 py-6">
-            {children}
-        </div>
-    </main>
-  </div>
-);
+// Placeholder components for pages (replace with actual page components later)
+// These will be developed according to the wireframes
+const ClubDashboardPage = () => <div className="p-4"><h2 className='text-2xl font-semibold text-slate-900 tracking-tight'>Club Dashboard</h2><p>Content for Club Dashboard...</p></div>;
+const PortfolioPage = () => <div className="p-4"><h2 className='text-2xl font-semibold text-slate-900 tracking-tight'>Portfolio</h2><p>Content for Portfolio...</p></div>;
+const FundsPage = () => <div className="p-4"><h2 className='text-2xl font-semibold text-slate-900 tracking-tight'>Funds</h2><p>Content for Funds...</p></div>;
+const FundDetailPage = () => <div className="p-4"><h2 className='text-2xl font-semibold text-slate-900 tracking-tight'>Fund Detail</h2><p>Content for Fund Detail...</p></div>;
+const ClubAccountingPage = () => <div className="p-4"><h2 className='text-2xl font-semibold text-slate-900 tracking-tight'>Club Accounting</h2><p>Content for Club Accounting...</p></div>;
+const BrokerageLogPage = () => <div className="p-4"><h2 className='text-2xl font-semibold text-slate-900 tracking-tight'>Brokerage Log</h2><p>Content for Brokerage Log...</p></div>;
+const MembersPage = () => <div className="p-4"><h2 className='text-2xl font-semibold text-slate-900 tracking-tight'>Members</h2><p>Content for Members...</p></div>;
+const SettingsPage = () => <div className="p-4"><h2 className='text-2xl font-semibold text-slate-900 tracking-tight'>Settings</h2><p>Content for Settings...</p></div>;
+
+// Using the NotFoundPage from wireframe specs, will create this page later
+import NotFoundPage from './pages/NotFoundPage'; // Placeholder import, will create actual component
 
 function App() {
-  // Only isLoading is needed here from useAuth0 for the top-level loading gate
   const { isLoading } = useAuth0();
-
-  // The useEffect for redirecting already authenticated users away from /login
-  // is removed as ProtectedRoute now handles direct redirect to Auth0.
-  // The onRedirectCallback in main.tsx handles where to go *after* Auth0 login.
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div>Initializing Application...</div>
-        {/* You could use a shadcn Skeleton here for a better loading experience */}
+      <div className="flex min-h-screen items-center justify-center bg-slate-100">
+        <div className="flex flex-col items-center space-y-4">
+          <Skeleton className="h-12 w-12 rounded-full bg-slate-300" />
+          <Skeleton className="h-4 w-48 bg-slate-300" />
+          <Skeleton className="h-4 w-32 bg-slate-300" />
+        </div>
       </div>
     );
   }
 
   return (
     <Routes>
-      {/*
-        If you decide to have a public landing page that *doesn't* require login immediately,
-        it would go here, outside the ProtectedRoute. For example:
-        <Route path="/landing" element={<PublicLandingPage />} />
-        And then your ProtectedRoute might handle the root path '/' if no public landing page exists.
-      */}
-
-      {/* Protected Routes - these will trigger Auth0 login if not authenticated */}
       <Route element={<ProtectedRoute />}>
-        {/* Default authenticated route could be club-selection */}
+        {/* Routes that use MainLayout (which includes Header and potentially Sidebar) */}
         <Route path="/" element={<MainLayout><UserLandingPage /></MainLayout>} />
-        <Route path="/UserLandingPage" element={<MainLayout><UserLandingPage /></MainLayout>} />
+        <Route path="/user-landing" element={<MainLayout><UserLandingPage /></MainLayout>} />
 
-        {/* Club-specific routes */}
+        {/* Club-specific routes now correctly use clubId in the path */}
         <Route path="/club/:clubId/dashboard" element={<MainLayout><ClubDashboardPage /></MainLayout>} />
-        <Route path="/club/:clubId/funds/:fundId" element={<MainLayout><FundDetailPage /></MainLayout>} />
         <Route path="/club/:clubId/portfolio" element={<MainLayout><PortfolioPage /></MainLayout>} />
-        <Route path="/club/:clubId/brokerage-transactions" element={<MainLayout><BrokerageTransactionsPage /></MainLayout>} />
-        <Route path="/club/:clubId/members" element={<MainLayout><MembersPage /></MainLayout>} />
+        <Route path="/club/:clubId/funds" element={<MainLayout><FundsPage /></MainLayout>} />
+        <Route path="/club/:clubId/funds/:fundId" element={<MainLayout><FundDetailPage /></MainLayout>} />
         <Route path="/club/:clubId/accounting" element={<MainLayout><ClubAccountingPage /></MainLayout>} />
+        <Route path="/club/:clubId/brokerage-log" element={<MainLayout><BrokerageLogPage /></MainLayout>} />
+        <Route path="/club/:clubId/members" element={<MainLayout><MembersPage /></MainLayout>} />
         <Route path="/club/:clubId/settings" element={<MainLayout><SettingsPage /></MainLayout>} />
       </Route>
 
-      {/*
-        If you completely remove LoginPage.tsx, you won't have a /login route.
-        If you want to keep it for some explicit linking or testing, you can add it outside ProtectedRoute:
-        <Route path="/login-explicit" element={<OriginalLoginPageIfKept />} />
-      */}
-
-      <Route path="*" element={<MainLayout><NotFoundPage /></MainLayout>} /> {/* Catch-all for 404 */}
+      {/* NotFoundPage can also use MainLayout or a simpler layout if preferred */}
+      {/* For now, using MainLayout to maintain header consistency */}
+      <Route path="*" element={<MainLayout><NotFoundPage /></MainLayout>} />
     </Routes>
   );
 }

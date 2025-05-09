@@ -1,124 +1,167 @@
-// src/pages/ClubSelectionPage.tsx
-import { useEffect, useState } from 'react';
+
+// frontend/src/pages/UserLandingPage.tsx
+import { Link } from 'react-router-dom';
 import { useAuth0 } from '@auth0/auth0-react';
-import { createApiClient,  type ApiClient } from '@/lib/apiClient'; // Import the utility
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { PlusCircle } from 'lucide-react';
 
-// Define a type for the user data we expect from /users/me
-interface UserProfile {
-  id: string;
-  email: string;
-  auth0_sub: string;
-  is_active: boolean;
-  // Add other fields if your UserRead schema includes them
-}
-
-const UserLandingPage = () => {
-  const { getAccessTokenSilently, user: auth0User } = useAuth0(); // Get token function and basic user info
-  const [backendUser, setBackendUser] = useState<UserProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [apiClient, setApiClient] = useState<ApiClient | null>(null);
-
-  // Create the API client instance once getAccessTokenSilently is available
-  useEffect(() => {
-    if (getAccessTokenSilently) {
-      setApiClient(() => createApiClient(getAccessTokenSilently)); // Pass the function correctly
-    }
-  }, [getAccessTokenSilently]);
-
-  // Fetch user data from backend when the component mounts and apiClient is ready
-  useEffect(() => {
-    const fetchUserData = async () => {
-      if (!apiClient) {
-        console.log("UserLandingPage: apiClient not ready yet.");
-        return; // Don't fetch if apiClient isn't initialized
-      }
-
-      setIsLoading(true);
-      setError(null);
-      console.log("UserLandingPage: Attempting to fetch /users/me"); // Log fetch attempt
-
-      try {
-        const response = await apiClient('/users/me'); // Call the /users/me endpoint
-        const userData: UserProfile = await response.json();
-        setBackendUser(userData);
-        console.log("UserLandingPage: Successfully fetched backend user data:", userData);
-      } catch (err) {
-        let message = "Failed to fetch user data from backend.";
-        if (err instanceof Error) {
-          message = err.message;
-        } else if (typeof err === 'string') { // Changed 'error' to 'err' to avoid confusion with state variable
-          message = err;
-        }
-        setError(message);
-        console.error(message, err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchUserData();
-  }, [apiClient]); // Only re-run when apiClient changes to avoid dependency cycles
-// Function to manually trigger the API call for testing
-const handleManualFetch = async () => {
-  if (!apiClient) {
-    console.log("API client not ready yet");
-    return;
-  }
-  
-  setIsLoading(true);
-  setError(null);
-  console.log("Manual fetch: Attempting to fetch /users/me");
-  
-  try {
-    const response = await apiClient('/users/me');
-    const userData: UserProfile = await response.json();
-    setBackendUser(userData);
-    console.log("Manual fetch: Successfully fetched backend user data:", userData);
-  } catch (err) {
-    let message = "Failed to fetch user data from backend.";
-    if (err instanceof Error) {
-      message = err.message;
-    } else if (typeof err === 'string') { // Added to match the pattern in the useEffect
-      message = err;
-    }
-    setError(message);
-    console.error(message, err);
-  } finally {
-    setIsLoading(false);
-  }
+// Mock data - replace with API call
+// Assuming a structure like:
+// interface ClubMembership { club: { id: string; name: string; description?: string; }; role: string; }
+// interface UserProfile { clubs: ClubMembership[]; }
+const MOCK_USER_CLUBS_DATA = {
+  isLoading: false,
+  error: null,
+  data: [
+    {
+      club: {
+        id: 'club123',
+        name: 'Eagle Investors Club',
+        description: 'Focused on long-term value investments in the tech sector.',
+        totalMembers: 12,
+        clubValue: 125034.78,
+      },
+      role: 'Admin',
+    },
+    {
+      club: {
+        id: 'club456',
+        name: 'Mountain View Capital',
+        description: 'Aggressive growth strategies with a mix of equities and options.',
+        totalMembers: 8,
+        clubValue: 78345.90,
+      },
+      role: 'Member',
+    },
+    {
+      club: {
+        id: 'club789',
+        name: 'Sunset Ventures',
+        description: 'Early-stage startup investments and angel funding.',
+        totalMembers: 23,
+        // clubValue: null, // Example of missing value
+      },
+      role: 'Member',
+    },
+  ],
 };
 
-return (
-  <div>
-    <h2 className="text-2xl font-semibold mb-4">Club Selection</h2>
+// Helper to format currency
+const formatCurrency = (value?: number | null) => {
+  if (value == null) return 'N/A';
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+};
 
-    {isLoading && <p>Loading user information...</p>}
-    {error && <p className="text-red-500">Error: {error}</p>}
-    
-    <button
-      onClick={handleManualFetch}
-      className="mb-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-    >
-      Test API Connection
-    </button>
+const UserLandingPage = () => {
+  const { user } = useAuth0();
+  // const { data: clubs, isLoading, error } = useQuery('userClubs', fetchUserClubs); // Replace with actual data fetching
 
+  // Using mock data for now
+  const { data: clubs, isLoading, error } = MOCK_USER_CLUBS_DATA;
 
-      {backendUser ? (
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <p>Welcome, {backendUser.email}!</p>
-          <p>(Backend User ID: {backendUser.id})</p>
-          <p>Select a club to continue.</p>
-          {/* TODO: Add logic to fetch and display clubs */}
+          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+            Welcome, {user?.name || user?.email || 'User'}!
+          </h1>
+          <p className="text-slate-600">Select a club to view its dashboard or manage your clubs.</p>
         </div>
-      ) : (
-        !isLoading && !error && <p>Waiting for user data...</p>
+        <Button variant="outline" className="bg-white">
+          <PlusCircle className="mr-2 h-4 w-4" /> Create New Club
+        </Button>
+      </div>
+
+      {isLoading && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+          {[1, 2, 3].map((i) => (
+            <Card key={i} className="bg-white border-slate-200/75 shadow-sm">
+              <CardHeader>
+                <Skeleton className="h-6 w-3/4 bg-slate-200" />
+                <Skeleton className="h-4 w-1/2 bg-slate-200 mt-1" />
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Skeleton className="h-4 w-full bg-slate-200" />
+                <Skeleton className="h-4 w-5/6 bg-slate-200" />
+                <Skeleton className="h-4 w-1/3 bg-slate-200 mt-2" />
+                <Skeleton className="h-4 w-1/2 bg-slate-200" />
+              </CardContent>
+              <CardFooter>
+                <Skeleton className="h-10 w-full bg-slate-200" />
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
       )}
 
-      {/* Display basic Auth0 info for debugging if needed */}
-      <pre className="mt-4 p-2 bg-gray-100 text-xs overflow-auto">
-        Auth0 User Info: {JSON.stringify(auth0User, null, 2)}
-      </pre>
+      {error && (
+        <Card className="bg-red-50 border-red-200">
+          <CardHeader>
+            <CardTitle className="text-red-700">Error Loading Clubs</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-red-600">Could not fetch your club information. Please try again later.</p>
+            {/* <p className="text-xs text-red-500 mt-1">{error.message}</p> */}
+          </CardContent>
+        </Card>
+      )}
+
+      {!isLoading && !error && clubs && clubs.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
+          {clubs.map(({ club, role }) => (
+            <Card
+              key={club.id}
+              className="bg-white border-slate-200/75 shadow-sm hover:shadow-md transition-all duration-200 ease-in-out flex flex-col"
+            >
+              <CardHeader>
+                <CardTitle className="text-lg font-medium text-slate-800">{club.name}</CardTitle>
+                <CardDescription className="text-xs text-slate-500 pt-0.5">
+                  Your Role: <span className="font-semibold text-slate-600">{role}</span>
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex-grow space-y-3">
+                {club.description && (
+                  <p className="text-sm text-slate-600 line-clamp-2">{club.description}</p>
+                )}
+                <div className="text-sm space-y-1 pt-1">
+                  {club.totalMembers !== undefined && (
+                    <p className="text-slate-500">
+                      Members: <span className="font-medium text-slate-700">{club.totalMembers}</span>
+                    </p>
+                  )}
+                  {club.clubValue !== undefined && (
+                     <p className="text-slate-500">
+                      Club Value: <span className="font-medium text-slate-700">{formatCurrency(club.clubValue)}</span>
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+              <CardFooter>
+                <Button asChild className="w-full bg-blue-600 hover:bg-blue-700 hover:-translate-y-px transform transition-all duration-150">
+                  <Link to={`/club/${club.id}/dashboard`}>View Club</Link>
+                </Button>
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {!isLoading && !error && clubs && clubs.length === 0 && (
+        <Card className="bg-white border-slate-200/75 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-slate-800">No Clubs Found</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-slate-600">You are not a member of any clubs yet.</p>
+            <Button variant="default" className="mt-4 bg-blue-600 hover:bg-blue-700">
+              <PlusCircle className="mr-2 h-4 w-4" /> Create Your First Club
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };
