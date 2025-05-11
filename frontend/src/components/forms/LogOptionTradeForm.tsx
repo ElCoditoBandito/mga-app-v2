@@ -10,24 +10,12 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { CardHeader, CardTitle, CardDescription } from '@/components/ui/card'; // For consistent header styling
 import { AlertCircle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { OptionTransactionType, OptionType } from '@/enums';
 
 // --- Mock Data Structures (align with backend Pydantic schemas) ---
 interface FundSlim {
   id: string;
   name: string;
-}
-
-// Based on TransactionCreateTrade & AssetCreateOption
-export enum OptionTransactionType {
-  BUY_TO_OPEN = 'BUY_OPTION',       // Buy to Open
-  SELL_TO_OPEN = 'SELL_OPTION',      // Sell to Open
-  BUY_TO_CLOSE = 'CLOSE_OPTION_BUY',  // Buy to Close
-  SELL_TO_CLOSE = 'CLOSE_OPTION_SELL' // Sell to Close
-}
-
-export enum OptionType {
-  CALL = 'CALL',
-  PUT = 'PUT'
 }
 
 export interface OptionTradeFormData {
@@ -130,8 +118,8 @@ const LogOptionTradeForm: React.FC<LogOptionTradeFormProps> = ({
     setIsSubmitting(true);
     try {
       await onSubmit(formData);
-    } catch (submissionError: any) {
-      setError(submissionError.message || 'Failed to save option trade. Please try again.');
+    } catch (submissionError: unknown) {
+      setError(submissionError instanceof Error ? submissionError.message : 'Failed to save option trade. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -213,7 +201,7 @@ const LogOptionTradeForm: React.FC<LogOptionTradeFormProps> = ({
             <h3 className="text-md font-semibold text-slate-700">Option Contract Details</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-4">
                 <div><Label htmlFor="underlyingSymbol">Underlying Ticker <span className="text-red-500">*</span></Label><Input id="underlyingSymbol" value={underlyingSymbol} onChange={(e) => setUnderlyingSymbol(e.target.value.toUpperCase())} placeholder="e.g., AAPL" required className="mt-1" /></div>
-                <div><Label htmlFor="optionType">Option Type <span className="text-red-500">*</span></Label><Select value={optionType} onValueChange={(v) => setOptionType(v as OptionType)} required><SelectTrigger id="optionType" className="mt-1 w-full"><SelectValue /></SelectTrigger><SelectContent>{Object.values(OptionType).map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
+                <div><Label htmlFor="optionType">Option Type <span className="text-red-500">*</span></Label><Select value={optionType} onValueChange={(v: string) => setOptionType(v as OptionType)} required><SelectTrigger id="optionType" className="mt-1 w-full"><SelectValue /></SelectTrigger><SelectContent>{Object.values(OptionType).map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
                 <div><Label htmlFor="strikePrice">Strike Price <span className="text-red-500">*</span></Label><Input id="strikePrice" type="number" value={strikePrice} onChange={(e) => setStrikePrice(e.target.value)} placeholder="0.00" step="any" min="0.01" required className="mt-1" /></div>
                 <div><Label htmlFor="expirationDate">Expiration Date <span className="text-red-500">*</span></Label><Input id="expirationDate" type="date" value={expirationDate} onChange={(e) => setExpirationDate(e.target.value)} required className="mt-1" /></div>
             </div>

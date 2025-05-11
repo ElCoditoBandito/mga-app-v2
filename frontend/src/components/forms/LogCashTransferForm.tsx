@@ -8,17 +8,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { AlertCircle, Info } from 'lucide-react';
+import { CashTransferType } from '@/enums';
 
 // --- Data Structures ---
 interface FundSlim {
   id: string;
   name: string;
-}
-
-export enum CashTransferType {
-  BANK_TO_BROKERAGE = 'BANK_TO_BROKERAGE',         // Club Bank to Fund(s) Brokerage
-  BROKERAGE_TO_BANK = 'BROKERAGE_TO_BANK',         // Fund Brokerage to Club Bank
-  INTERFUND_CASH_TRANSFER = 'INTERFUND_CASH_TRANSFER', // Between two Funds' brokerage cash
 }
 
 // Based on TransactionCreateCashTransfer
@@ -70,7 +65,7 @@ const LogCashTransferForm: React.FC<LogCashTransferFormProps> = ({
     if (isNaN(numTotalAmount) || numTotalAmount <= 0) { setError('Valid positive Transfer Amount is required.'); return; }
     if (!transactionDate) { setError('Transfer Date is required.'); return; }
 
-    let formData: CashTransferFormData = {
+    const formData: CashTransferFormData = {
       club_id: clubId,
       transaction_type: transactionType,
       transaction_date: transactionDate,
@@ -98,8 +93,8 @@ const LogCashTransferForm: React.FC<LogCashTransferFormProps> = ({
       setTotalAmount('');
       setDescription('');
       // Source/Target fund IDs reset by useEffect on transactionType change
-    } catch (submissionError: any) {
-      setError(submissionError.message || 'Failed to log cash transfer. Please try again.');
+    } catch (submissionError: unknown) {
+      setError(submissionError instanceof Error ? submissionError.message : 'Failed to log cash transfer. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -126,7 +121,7 @@ const LogCashTransferForm: React.FC<LogCashTransferFormProps> = ({
       <div className="space-y-4">
         <div>
           <Label htmlFor="transferType" className="font-medium">Transfer Type <span className="text-red-500">*</span></Label>
-          <Select value={transactionType} onValueChange={(v) => setTransactionType(v as CashTransferType)} required>
+          <Select value={transactionType} onValueChange={(v: string) => setTransactionType(v as CashTransferType)} required>
             <SelectTrigger id="transferType" className="mt-1 w-full">
               <SelectValue />
             </SelectTrigger>

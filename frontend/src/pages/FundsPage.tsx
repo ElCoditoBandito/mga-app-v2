@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch'; // Assuming npx shadcn-ui@lates
 import { Label } from '@/components/ui/label';   // Assuming npx shadcn-ui@latest add label
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from '@/components/ui/dialog';
-import { Skeleton } from '@/components/ui/skeleton';
+// import { Skeleton } from '@/components/ui/skeleton';
 import { PlusCircle, Edit3, Settings2, AlertTriangle, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -69,7 +69,7 @@ interface FundFormData {
 interface FundDialogFormProps {
   initialData?: FundFormData;
   onSave: (data: FundFormData) => void;
-  dialogCloseRef?: React.RefObject<HTMLButtonElement>; // Make optional if not always used
+  dialogCloseRef?: React.Ref<HTMLButtonElement>; // Make optional if not always used
   mode: 'create' | 'edit';
 }
 
@@ -143,8 +143,10 @@ const FundDialogForm: React.FC<FundDialogFormProps> = ({ initialData, onSave, di
 const FundsPage = () => {
   const { clubId } = useParams<{ clubId: string }>();
   const [pageData, setPageData] = useState<FundsPageData>(MOCK_FUNDS_PAGE_DATA_STORE.current);
-  const [isLoading, setIsLoading] = useState(false); // Mock loading state
-  const [error, setError] = useState<Error | null>(null); // Mock error state
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [isLoading, _setIsLoading] = useState(false); // Mock loading state
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [error, _setError] = useState<Error | null>(null); // Mock error state
 
   const [fundSplits, setFundSplits] = useState<FundSplit[]>(pageData.fundSplits);
   const [showCreateFundDialog, setShowCreateFundDialog] = useState(false);
@@ -167,7 +169,7 @@ const FundsPage = () => {
         brokerage_cash_balance: 0,
     };
     const updatedFunds = [...pageData.funds, newFund];
-    let updatedSplits = [...fundSplits];
+    const updatedSplits = [...fundSplits];
     if (newFund.is_active) {
         updatedSplits.push({ fund_id: newFund.id, fund_name: newFund.name, split_percentage: 0 });
     }
@@ -287,7 +289,7 @@ const FundsPage = () => {
             </CardFooter>
           </Card>
         ))}
-        {funds.length === 0 && ( /* ... No funds card ... */ )}
+        {funds.length === 0 && null /* TODO: Implement UI for when there are no funds */}
       </div>
 
       {/* Edit Fund Dialog */}
@@ -346,7 +348,8 @@ const FundsPage = () => {
           </CardContent>
         </Card>
       )}
-      {isAdmin && activeFundsForSplitTable.length === 0 && funds.length > 0 && ( /* ... No active funds for split ... */ )}
+      {isAdmin && activeFundsForSplitTable.length === 0 && funds.length > 0 && ( // TODO: Implement UI for when there are no active funds for split table, but inactive funds exist
+  null )}
     </div>
   );
 };

@@ -1,8 +1,8 @@
 
 // frontend/src/pages/FundDetailPage.tsx
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -12,8 +12,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, DollarSign, TrendingUp, TrendingDown, ListChecks, Hash, Percent, Edit, PlusCircle, BookOpen, Info } from 'lucide-react';
+// import { Skeleton } from '@/components/ui/skeleton';
+import { ArrowLeft, Banknote, DollarSign, TrendingUp, ListChecks, Percent, Edit, PlusCircle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip } from 'recharts'; // Renamed Tooltip to avoid conflict if any
 
@@ -122,9 +122,9 @@ const formatNumber = (value?: number | null, precision = 2) => {
   return new Intl.NumberFormat('en-US', { minimumFractionDigits: precision, maximumFractionDigits: precision }).format(value);
 };
 
-const formatDate = (dateString?: string) => {
-  if (!dateString) return 'N/A';
-  return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+const formatDate = (dateInput?: string | number | Date) => {
+  if (!dateInput) return 'N/A';
+  return new Date(dateInput).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
 const getAssetById = (assetId: string, assets: Asset[]) => assets.find(a => a.id === assetId);
@@ -147,7 +147,17 @@ const calculateFundDetailedMetrics = (fund: FundDetails, assets: Asset[], clubTo
 };
 
 // Recharts Custom Tooltip for Fund Performance
-const FundPerformanceTooltip = ({ active, payload, label }: any) => {
+interface FundPerformanceTooltipProps {
+  active?: boolean;
+  payload?: Array<{
+    name: string;
+    value: number;
+    // Potentially other properties from Recharts payload if needed
+  }>;
+  label?: string | number;
+}
+
+const FundPerformanceTooltip = ({ active, payload, label }: FundPerformanceTooltipProps) => {
     if (active && payload && payload.length) {
       return (
         <div className="bg-white p-3 shadow-lg rounded-lg border border-slate-200">
@@ -165,9 +175,12 @@ const FundPerformanceTooltip = ({ active, payload, label }: any) => {
 const FundDetailPage = () => {
   const { clubId, fundId } = useParams<{ clubId: string; fundId: string }>();
   // const { data, isLoading, error } = useQuery(...); // Real API call
-  const [pageData, setPageData] = useState<FundDetailPageData | null>(MOCK_FUND_DETAIL_PAGE_DATA(fundId));
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [pageData, _setPageData] = useState<FundDetailPageData | null>(MOCK_FUND_DETAIL_PAGE_DATA(fundId));
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [isLoading, _setIsLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [error, _setError] = useState<Error | null>(null);
 
   const fundMetrics = useMemo(() => {
     if (!pageData?.fund) return null;

@@ -1,4 +1,3 @@
-\
 // frontend/src/components/layout/Header.tsx
 import { Link } from 'react-router-dom';
 import { AuthNav } from './AuthNav';

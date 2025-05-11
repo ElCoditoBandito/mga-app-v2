@@ -1,8 +1,8 @@
 
 // frontend/src/pages/ClubAccountingPage.tsx
 import React, { useState, useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { useParams } from 'react-router-dom';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,7 +12,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -20,22 +19,26 @@ import {
   DialogClose
 } from '@/components/ui/dialog';
 // import { Skeleton } from '@/components/ui/skeleton';
-import { DollarSign, BookOpen, TrendingUp, Users, Receipt, Gift, RefreshCw, Download, Banknote, ArrowRightLeft } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { BookOpen, TrendingUp, Users, Receipt, Gift, RefreshCw, Download, Banknote, ArrowRightLeft } from 'lucide-react';
+// import { cn } from '@/lib/utils';
 
 // Import Forms
-import RecordMemberTransactionForm, { MemberTransactionFormData } from '@/components/forms/RecordMemberTransactionForm';
-import LogClubExpenseForm, { ClubExpenseFormData } from '@/components/forms/LogClubExpenseForm';
-import LogCashTransferForm, { CashTransferFormData, CashTransferType } from '@/components/forms/LogCashTransferForm';
+import RecordMemberTransactionForm from '@/components/forms/RecordMemberTransactionForm';
+import type { MemberTransactionFormData } from '@/components/forms/RecordMemberTransactionForm';
+import LogClubExpenseForm from '@/components/forms/LogClubExpenseForm';
+import type { ClubExpenseFormData } from '@/components/forms/LogClubExpenseForm';
+import LogCashTransferForm from '@/components/forms/LogCashTransferForm';
+import type { CashTransferFormData } from '@/components/forms/LogCashTransferForm';
+import { CashTransferType, MemberTransactionType } from '@/enums';
 
 // --- Mock Data Structures & Generation (simplified, ensure alignment with previous definitions) ---
 interface UserSlim {
   id: string;
   email: string;
-  name?: string; // For display in RecordMemberTransactionForm
+  name: string; // For display in RecordMemberTransactionForm
 }
-interface MemberTransaction { id: string; user: UserSlim; transaction_type: 'DEPOSIT' | 'WITHDRAWAL'; transaction_date: string; amount: number; notes?: string; units_transacted?: number; unit_value_used?: number;}
-interface ClubLevelTransaction { id: string; transaction_date: string; transaction_type: 'CLUB_EXPENSE' | 'BANK_INTEREST' | 'BANK_TO_BROKERAGE' | 'BROKERAGE_TO_BANK'; description: string; total_amount: number; fund_name?: string;}
+interface MemberTransaction { id: string; user: UserSlim; transaction_type: MemberTransactionType; transaction_date: string; amount: number; notes?: string; units_transacted?: number; unit_value_used?: number;}
+interface ClubLevelTransaction { id: string; transaction_date: string; transaction_type: 'CLUB_EXPENSE' | 'BANK_INTEREST' | CashTransferType; description: string; total_amount: number; fund_name?: string; fees_commissions?: number;}
 interface UnitValueHistory { id: string; valuation_date: string; total_club_value: number; total_units_outstanding: number; unit_value: number;}
 interface ClubAccountingPageData {
   clubId: string; clubName: string; club_bank_account_balance: number;
@@ -65,7 +68,7 @@ const MOCK_CLUB_ACCOUNTING_DATA_STORE: { current: ClubAccountingPageData } = {
         club_bank_account_balance: 25034.78,
         latest_unit_value_record: { id: 'uvh10', valuation_date: '2024-07-28', total_club_value: 125034.78, total_units_outstanding: 10000, unit_value: 12.503478 },
         member_transactions: [
-            { id: 'mt1', user: MOCK_USERS_SLIM_ACC[0], transaction_type: 'DEPOSIT', transaction_date: '2024-07-25', amount: 1000, notes: 'Initial contribution'},
+            { id: 'mt1', user: MOCK_USERS_SLIM_ACC[0], transaction_type: MemberTransactionType.DEPOSIT, transaction_date: '2024-07-25', amount: 1000, notes: 'Initial contribution'},
         ],
         club_level_transactions: [
             { id: 'clt1', transaction_date: '2024-07-28', transaction_type: 'CLUB_EXPENSE', description: 'Annual Accounting Software', total_amount: -75.00 },
@@ -96,7 +99,7 @@ const LogBankInterestForm: React.FC<LogBankInterestFormProps> = ({ onSave }) => 
 // --- Main Component ---
 const ClubAccountingPage = () => {
   const { clubId = "club123" } = useParams<{ clubId: string }>();
-  const [pageData, setPageData] = useState<ClubAccountingPageData>(MOCK_CLUB_ACCOUNTING_DATA_STORE.current);
+  const [pageData, setPageData] = useState<ClubAccountingPageData | null>(MOCK_CLUB_ACCOUNTING_DATA_STORE.current);
   
   // Dialog states
   const [showLogInterestDialog, setShowLogInterestDialog] = useState(false);
@@ -146,7 +149,15 @@ const ClubAccountingPage = () => {
     console.log('Cash Transfer Submitted:', data);
     // This might create one or two ClubLevelTransactions depending on type
     // Example: BANK_TO_BROKERAGE reduces bank balance
-    handleAddClubLevelTransaction({transaction_date: data.transaction_date, transaction_type: data.transaction_type, description: data.description || 'Cash Transfer', total_amount: (data.transaction_type === CashTransferType.BROKERAGE_TO_BANK ? 1 : -1) * data.total_amount, fund_name: data.fund_id ? pageData.fundsForForm.find(f=>f.id === data.fund_id)?.name : undefined});
+    if (pageData) {
+      handleAddClubLevelTransaction({
+        transaction_date: data.transaction_date,
+        transaction_type: data.transaction_type,
+        description: data.description || 'Cash Transfer',
+        total_amount: (data.transaction_type === CashTransferType.BROKERAGE_TO_BANK ? 1 : -1) * data.total_amount,
+        fund_name: data.fund_id ? pageData.fundsForForm.find(f=>f.id === data.fund_id)?.name : undefined
+      });
+    }
     setShowLogCashTransferDialog(false);
   };
 
@@ -210,7 +221,7 @@ const ClubAccountingPage = () => {
                     {combinedLedgerItems.map(item => {
                       let description, debited, credited, typeLabel;
                       if (item.itemType === 'MemberTransaction') {
-                        typeLabel = item.transaction_type === 'DEPOSIT' ? 'Deposit' : 'Withdrawal';
+                        typeLabel = item.transaction_type === MemberTransactionType.DEPOSIT ? 'Deposit' : 'Withdrawal';
                         description = `${item.user.email}`;
                         if(item.transaction_type === 'DEPOSIT') credited = item.amount; else debited = item.amount;
                       } else { 

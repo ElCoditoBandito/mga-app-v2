@@ -1,7 +1,7 @@
 
 // frontend/src/pages/ClubSettingsPage.tsx
 import React, { useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, /*useNavigate*/ } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,9 +18,9 @@ import {
   DialogTrigger,
   DialogClose
 } from '@/components/ui/dialog';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Settings, FileText, Users, BarChart2, AlertTriangle, Archive, ShieldAlert, Save, ExternalLink } from 'lucide-react';
-import { cn } from '@/lib/utils';
+// import { Skeleton } from '@/components/ui/skeleton';
+import { Settings, Users, BarChart2, AlertTriangle, Archive, ShieldAlert, Save, ExternalLink } from 'lucide-react';
+// import { cn } from '@/lib/utils';
 
 // --- Mock Data Structures ---
 interface ClubSettingsData {
@@ -41,11 +41,13 @@ const MOCK_CLUB_SETTINGS_DATA: ClubSettingsData = {
 // --- Main Component ---
 const ClubSettingsPage = () => {
   const { clubId } = useParams<{ clubId: string }>();
-  const navigate = useNavigate();
+  // const navigate = useNavigate();
 
   const [pageData, setPageData] = useState<ClubSettingsData>(MOCK_CLUB_SETTINGS_DATA);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [isLoading, _setIsLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [error, _setError] = useState<Error | null>(null);
 
   // Form state for General Club Information
   const [clubName, setClubName] = useState(pageData.clubName);

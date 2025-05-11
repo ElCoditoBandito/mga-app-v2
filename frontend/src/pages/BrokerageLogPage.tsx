@@ -1,6 +1,7 @@
 
 // frontend/src/pages/BrokerageLogPage.tsx
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
+import { OptionTransactionType, CashTransferType } from '@/enums';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,8 +11,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogTrigger,
   // DialogClose, // Not always needed if form has its own cancel/submit close logic
 } from '@/components/ui/dialog';
@@ -27,12 +26,10 @@ import { PlusCircle, Download, Filter, Edit3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // Import Forms
-import LogStockTradeForm, { StockTradeFormData } from '@/components/forms/LogStockTradeForm';
-import LogOptionTradeForm, { OptionTradeFormData } from '@/components/forms/LogOptionTradeForm';
-// Placeholder imports for other forms that might be added here later
-// import LogDividendInterestForm from '@/components/forms/LogDividendInterestForm';
-// import LogCashTransferBrokerageForm from '@/components/forms/LogCashTransferBrokerageForm'; 
-// import LogOptionLifecycleEventForm from '@/components/forms/LogOptionLifecycleEventForm';
+import LogStockTradeForm, { type StockTradeFormData } from '@/components/forms/LogStockTradeForm';
+import LogOptionTradeForm, { type OptionTradeFormData } from '@/components/forms/LogOptionTradeForm';
+import LogCashTransferForm, { type CashTransferFormData } from '@/components/forms/LogCashTransferForm';
+import LogDividendInterestForm, { type DividendInterestFormData } from '@/components/forms/LogDividendInterestForm';
 
 
 // --- Mock Data Structures (assuming these are defined elsewhere or similar to previous versions) ---
@@ -111,11 +108,13 @@ const BrokerageLogPage = () => {
   const [searchParams] = useSearchParams();
   const initialFundFilter = searchParams.get('fundId') || 'all';
 
-  const [pageData, setPageData] = useState<BrokerageLogPageData>(MOCK_BROKERAGE_LOG_DATA_STORE.current);
+  const [pageData, setPageData] = useState<BrokerageLogPageData>({ ...MOCK_BROKERAGE_LOG_DATA_STORE.current, clubId: clubId });
   // Dialog states
   const [showLogStockTradeDialog, setShowLogStockTradeDialog] = useState(false);
   const [showLogOptionTradeDialog, setShowLogOptionTradeDialog] = useState(false);
-  // Add states for other dialogs as they are integrated
+  const [showLogDividendInterestDialog, setShowLogDividendInterestDialog] = useState(false);
+  const [showLogCashTransferDialog, setShowLogCashTransferDialog] = useState(false);
+  const [showLogOptionEventDialog, setShowLogOptionEventDialog] = useState(false);
 
   // Filters State
   const [filterFund, setFilterFund] = useState<string>(initialFundFilter);
@@ -183,12 +182,84 @@ const BrokerageLogPage = () => {
         quantity: data.quantity_contracts, // Number of contracts
         price_per_unit: data.premium_per_contract, // Premium per share
         fees_commissions: data.fees_commissions,
-        total_amount: (data.transaction_type === 'BUY_OPTION' || data.transaction_type === 'CLOSE_OPTION_BUY' ? -1 : 1) * (data.quantity_contracts * data.premium_per_contract * 100) + (data.transaction_type.startsWith('BUY') || data.transaction_type.startsWith('CLOSE_OPTION_BUY') ? -(data.fees_commissions || 0) : (data.fees_commissions || 0)),
+        total_amount: (data.transaction_type === OptionTransactionType.BUY_TO_OPEN || data.transaction_type === OptionTransactionType.BUY_TO_CLOSE ? -1 : 1) * (data.quantity_contracts * data.premium_per_contract * 100) - (data.fees_commissions || 0),
     };
     handleAddTransaction(newTxData);
     setShowLogOptionTradeDialog(false); // Close dialog
   };
 
+  // Handler for Dividend/Interest form submission
+  const handleLogDividendInterestSubmit = async (data: DividendInterestFormData) => {
+    console.log('Dividend/Interest Data Submitted:', data);
+    // Mock API call
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    const newTxData: Omit<BrokerageTransaction, 'id'> = {
+      transaction_date: data.transaction_date,
+      fund_id: data.fund_id,
+      transaction_type: data.transaction_type, // 'DIVIDEND' or 'BROKERAGE_INTEREST'
+      asset_id: data.transaction_type === 'DIVIDEND' ? data.asset_id : undefined,
+      description: data.description || `${data.transaction_type === 'DIVIDEND' ? 'Dividend' : 'Brokerage Interest'} received`,
+      total_amount: data.total_amount,
+      fees_commissions: data.fees_commissions,
+    };
+    
+    handleAddTransaction(newTxData);
+    setShowLogDividendInterestDialog(false);
+  };
+
+  // Handler for Cash Transfer form submission
+  const handleBrokerageCashTransferSubmit = async (data: CashTransferFormData) => {
+    console.log('Cash Transfer Data Submitted:', data);
+    // Mock API call
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Determine the correct transaction type based on source/destination
+    let transactionType: string;
+    if (data.transaction_type === CashTransferType.BANK_TO_BROKERAGE) {
+      transactionType = 'BANK_TO_BROKERAGE';
+    } else if (data.transaction_type === CashTransferType.BROKERAGE_TO_BANK) {
+      transactionType = 'BROKERAGE_TO_BANK';
+    } else {
+      transactionType = 'INTERFUND_CASH_TRANSFER';
+    }
+
+    const newTxData: Omit<BrokerageTransaction, 'id'> = {
+      transaction_date: data.transaction_date,
+      fund_id: data.fund_id,
+      transaction_type: transactionType,
+      description: data.description || `Cash transfer: ${transactionType}`,
+      total_amount: data.transaction_type === CashTransferType.BANK_TO_BROKERAGE ? data.total_amount : -data.total_amount,
+    };
+    
+    handleAddTransaction(newTxData);
+    setShowLogCashTransferDialog(false);
+  };
+
+  // Handler for Option Event (Expiration) form submission
+  const handleLogOptionEventSubmit = async (data: OptionTradeFormData) => {
+    console.log('Option Event Data Submitted:', data);
+    // Mock API call
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // For option expiration events
+    // Note: We're extending the existing LogOptionTradeForm to handle OPTION_EXPIRATION
+    // The transaction_type will be one of the OptionTransactionType enum values
+    const newTxData: Omit<BrokerageTransaction, 'id'> = {
+      transaction_date: data.transaction_date,
+      fund_id: data.fund_id,
+      transaction_type: 'OPTION_EXPIRATION', // Override with the correct backend type
+      // Use existing option asset or create a reference to a new one
+      asset_id: pageData.assets.find(a => a.symbol === data.option_symbol_name)?.id || `new_opt_${data.underlying_symbol}`,
+      description: data.description || `Option contract expired: ${data.underlying_symbol} ${data.strike_price}${data.option_type.charAt(0)} Exp ${data.expiration_date}`,
+      quantity: data.quantity_contracts,
+      fees_commissions: data.fees_commissions,
+      total_amount: -(data.fees_commissions || 0), // Only fees are charged for expiration
+    };
+    
+    handleAddTransaction(newTxData);
+    setShowLogOptionEventDialog(false);
+  };
 
   const { funds, assets, isAdmin } = pageData;
 
@@ -229,10 +300,60 @@ const BrokerageLogPage = () => {
               </DialogContent>
             </Dialog>
             
-            {/* Placeholder Buttons for other forms */}
-            <Button variant="outline" className="bg-white justify-start text-left" disabled><PlusCircle className="mr-2 h-4 w-4 text-gray-400"/>Record Dividend/Interest</Button>
-            <Button variant="outline" className="bg-white justify-start text-left" disabled><PlusCircle className="mr-2 h-4 w-4 text-gray-400"/>Record Cash Transfer</Button>
-            <Button variant="outline" className="bg-white justify-start text-left" disabled><PlusCircle className="mr-2 h-4 w-4 text-gray-400"/>Record Option Event</Button>
+            {/* Dividend/Interest Dialog */}
+            <Dialog open={showLogDividendInterestDialog} onOpenChange={setShowLogDividendInterestDialog}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="bg-white justify-start text-left">
+                  <PlusCircle className="mr-2 h-4 w-4 text-blue-600"/>Record Dividend/Interest
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-2xl bg-white p-6">
+                <LogDividendInterestForm
+                  funds={funds}
+                  assets={assets.filter(a => a.asset_type === 'STOCK').map(a => ({
+                    id: a.id,
+                    symbol: a.symbol,
+                    name: a.name,
+                    asset_type: a.asset_type || 'STOCK'
+                  }))}
+                  onSubmit={handleLogDividendInterestSubmit}
+                  onCancel={() => setShowLogDividendInterestDialog(false)}
+                />
+              </DialogContent>
+            </Dialog>
+
+            {/* Cash Transfer Dialog */}
+            <Dialog open={showLogCashTransferDialog} onOpenChange={setShowLogCashTransferDialog}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="bg-white justify-start text-left">
+                  <PlusCircle className="mr-2 h-4 w-4 text-blue-600"/>Record Cash Transfer
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-2xl bg-white p-6">
+                <LogCashTransferForm
+                  clubId={pageData.clubId}
+                  funds={funds}
+                  onSubmit={handleBrokerageCashTransferSubmit}
+                  onCancel={() => setShowLogCashTransferDialog(false)}
+                />
+              </DialogContent>
+            </Dialog>
+
+            {/* Option Event Dialog (using existing option trade form) */}
+            <Dialog open={showLogOptionEventDialog} onOpenChange={setShowLogOptionEventDialog}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="bg-white justify-start text-left">
+                  <PlusCircle className="mr-2 h-4 w-4 text-blue-600"/>Record Option Event
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-3xl bg-white p-6">
+                <LogOptionTradeForm
+                  funds={funds}
+                  onSubmit={handleLogOptionEventSubmit}
+                  onCancel={() => setShowLogOptionEventDialog(false)}
+                />
+              </DialogContent>
+            </Dialog>
 
           </CardContent>
         </Card>

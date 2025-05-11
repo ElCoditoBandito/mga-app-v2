@@ -66,8 +66,22 @@ const LogClubExpenseForm: React.FC<LogClubExpenseFormProps> = ({
       setTotalAmount('');
       setDescription('');
       setFeesCommissions('0');
-    } catch (submissionError: any) {
-      setError(submissionError.message || 'Failed to log expense. Please try again.');
+    } catch (submissionError: unknown) {
+      let errorMessage = 'Failed to log expense. Please try again.'; // Default error message
+
+      if (submissionError instanceof Error) {
+        // If it's an Error instance, use its message
+        errorMessage = submissionError.message;
+      } else if (typeof submissionError === 'string') {
+        // If it's a string, use it directly
+        errorMessage = submissionError;
+      } else if (submissionError && typeof (submissionError as { message?: unknown }).message === 'string') {
+        // If it's an object with a string 'message' property
+        errorMessage = (submissionError as { message: string }).message;
+      }
+      // For other unknown error types, the default message will be used.
+      
+      setError(errorMessage);
     } finally {
       setIsSubmitting(false);
     }

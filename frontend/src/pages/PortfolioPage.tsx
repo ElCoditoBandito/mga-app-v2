@@ -1,7 +1,7 @@
 
 // frontend/src/pages/PortfolioPage.tsx
 import React, { useState, useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,10 +36,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
-import { DollarSign, TrendingUp, TrendingDown, Layers, Move, PlusCircle, Landmark, Banknote, FilePieChart as FilePieChartIcon } from 'lucide-react'; // Renamed FilePieChart to avoid conflict
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+// import { Skeleton } from '@/components/ui/skeleton';
+import { DollarSign, TrendingUp, TrendingDown, Layers, Move, PlusCircle, Banknote, FilePieChart as FilePieChartIcon } from 'lucide-react'; // Renamed FilePieChart to avoid conflict
 import { cn } from '@/lib/utils';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from 'recharts';
+import { toast } from 'sonner';
+import LogStockTradeForm from '@/components/forms/LogStockTradeForm';
+import type { StockTradeFormData } from '@/components/forms/LogStockTradeForm';
+import LogOptionTradeForm from '@/components/forms/LogOptionTradeForm';
+import type { OptionTradeFormData } from '@/components/forms/LogOptionTradeForm';
 
 // --- Mock Data ---
 interface Asset {
@@ -81,6 +92,32 @@ const MOCK_ASSETS_STORE: Asset[] = [
   { id: 'asset5', symbol: 'TSLA', name: 'Tesla Inc.', current_price: 250.00, asset_type: 'STOCK' },
   { id: 'asset6', symbol: 'BTC', name: 'Bitcoin', current_price: 60000, asset_type: 'CRYPTO' }, // Example Crypto
 ];
+
+// Define mock funds data
+const MOCK_FUNDS_WITH_POSITIONS_DATA: FundWithPositions[] = [
+  { id: 'fundA', name: 'US Equities Fund', brokerage_cash_balance: 5000.25, positions: [
+    { id: 'pos1', asset_id: 'asset1', quantity: 10, average_cost_basis: 150.00 },
+    { id: 'pos2', asset_id: 'asset2', quantity: 5, average_cost_basis: 320.00 },
+  ], is_active: true },
+  { id: 'fundB', name: 'Global Growth Fund', brokerage_cash_balance: 10000.50, positions: [
+    { id: 'pos3', asset_id: 'asset3', quantity: 20, average_cost_basis: 140.00 },
+    { id: 'pos4', asset_id: 'asset4', quantity: 15, average_cost_basis: 120.00 },
+  ], is_active: true },
+  { id: 'fundC', name: 'Fixed Income & Crypto', brokerage_cash_balance: 2500.00, positions: [ // Ensure 'fundC' exists
+    { id: 'pos5', asset_id: 'asset5', quantity: 8, average_cost_basis: 230.00 },
+    // Note: The crypto position for asset6 is added later by existing code (lines 87-90)
+  ], is_active: true }, // Changed to active to allow crypto position addition to be more meaningful for testing
+   { id: 'fundD', name: 'Inactive Fund', brokerage_cash_balance: 100.00, positions: [], is_active: false },
+];
+
+// Initialize MOCK_PORTFOLIO_PAGE_DATA
+const MOCK_PORTFOLIO_PAGE_DATA: PortfolioPageData = {
+  clubId: 'club123',
+  clubName: 'Eagle Investors Club',
+  assets: [], // Will be populated by the line below
+  funds: MOCK_FUNDS_WITH_POSITIONS_DATA,
+  isAdmin: true,
+};
 
 MOCK_PORTFOLIO_PAGE_DATA.assets = MOCK_ASSETS_STORE; // Update existing mock data with new assets store
 // Add a crypto position to one of the funds for chart variety
@@ -173,7 +210,18 @@ const calculateAssetAllocation = (activeFunds: FundWithPositions[], assets: Asse
 // Define colors for Pie Chart
 const PIE_CHART_COLORS = ['#2563EB', '#34D399', '#F59E0B', '#EC4899', '#8B5CF6', '#6366F1', '#10B981'];
 
-const CustomPieChartTooltip = ({ active, payload }: any) => {
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: Array<{
+    payload: {
+      name: string;
+      value: number;
+      percentage: number;
+    }
+  }>;
+}
+
+const CustomPieChartTooltip = ({ active, payload }: CustomTooltipProps) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
@@ -193,7 +241,23 @@ const CustomPieChartTooltip = ({ active, payload }: any) => {
 
 
 // --- Inter-Fund Transfer Modal (collapsed for brevity, no changes from previous) --- 
-interface InterFundTransferModalProps {position: Position; asset: Asset; sourceFund: FundWithPositions; availableTargetFunds: FundWithPositions[]; onTransferConfirm: (details: any) => void;}
+interface TransferConfirmDetails {
+  positionId: string;
+  assetId: string;
+  sourceFundId: string;
+  targetFundId: string;
+  quantity: number;
+  transferDate: string;
+  notes: string;
+}
+
+interface InterFundTransferModalProps {
+  position: Position;
+  asset: Asset;
+  sourceFund: FundWithPositions;
+  availableTargetFunds: FundWithPositions[];
+  onTransferConfirm: (details: TransferConfirmDetails) => void;
+}
 const InterFundTransferModal: React.FC<InterFundTransferModalProps> = ({ onTransferConfirm, ...props }) => {
     // ... same implementation as before
     const {position, asset, sourceFund, availableTargetFunds} = props;
@@ -222,13 +286,26 @@ const InterFundTransferModal: React.FC<InterFundTransferModalProps> = ({ onTrans
 
 // --- Main Portfolio Page Component --- 
 const PortfolioPage = () => {
-  const { clubId } = useParams<{ clubId: string }>();
-  const [pageData, setPageData] = useState<PortfolioPageData>(MOCK_PORTFOLIO_PAGE_DATA);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { clubId: _clubId } = useParams<{ clubId: string }>();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [pageData, _setPageData] = useState<PortfolioPageData>(MOCK_PORTFOLIO_PAGE_DATA);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [isLoading, _setIsLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [error, _setError] = useState<Error | null>(null);
 
   const [openTransferModal, setOpenTransferModal] = useState(false);
   const [transferDetails, setTransferDetails] = useState<Omit<InterFundTransferModalProps, 'onTransferConfirm' | 'availableTargetFunds'> | null>(null);
+  
+  // State for trade modals
+  const [isLogStockTradeModalOpen, setIsLogStockTradeModalOpen] = useState(false);
+  const [isLogOptionTradeModalOpen, setIsLogOptionTradeModalOpen] = useState(false);
+  const [selectedFundContextForTrade, setSelectedFundContextForTrade] = useState<{
+    clubId: string | undefined,
+    fundId: string,
+    fundName: string
+  } | null>(null);
 
   const overallMetrics = useMemo(() => {
     if (!pageData) return { totalMarketValue: 0, totalCostBasis: 0, unrealizedPandL: 0, totalBrokerageCash: 0, totalAssetsMarketValue: 0 };
@@ -244,8 +321,32 @@ const PortfolioPage = () => {
     setTransferDetails({ position, asset, sourceFund });
     setOpenTransferModal(true);
   };
+  
+  // Handler for stock trade form submission
+  async function handleLogStockTradeSubmit(formData: StockTradeFormData) {
+    console.log('Stock trade form data:', formData);
+    
+    // Simulate API call
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    toast.success("Stock trade logged successfully");
+    setIsLogStockTradeModalOpen(false);
+    // Future: Refresh data
+  }
+  
+  // Handler for option trade form submission
+  async function handleLogOptionTradeSubmit(formData: OptionTradeFormData) {
+    console.log('Option trade form data:', formData);
+    
+    // Simulate API call
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    toast.success("Option trade logged successfully");
+    setIsLogOptionTradeModalOpen(false);
+    // Future: Refresh data
+  }
 
-  const handleTransferConfirm = (details: any /* Parameters<InterFundTransferModalProps['onTransferConfirm']>[0] */) => {
+  const handleTransferConfirm = (details: TransferConfirmDetails) => {
     console.log('Transfer Confirmed:', details);
     setOpenTransferModal(false);
     setTransferDetails(null);
@@ -305,7 +406,7 @@ const PortfolioPage = () => {
                   nameKey="name"
                   paddingAngle={2}
                 >
-                  {assetAllocationData.map((entry, index) => (
+                  {assetAllocationData.map((_entry, index) => (
                     <Cell key={`cell-${index}`} fill={PIE_CHART_COLORS[index % PIE_CHART_COLORS.length]} />
                   ))}
                 </Pie>
@@ -342,7 +443,48 @@ const PortfolioPage = () => {
                                 P&L: <span className={cn("font-medium", fundMetrics.fundUnrealizedPandL >= 0 ? 'text-green-600' : 'text-red-600')}>{formatCurrency(fundMetrics.fundUnrealizedPandL, true)}</span>
                             </p>
                         </div>
-                        {isAdmin && (<Button size="sm" variant="outline" className="mt-2 sm:mt-0 bg-white hover:bg-slate-100 text-xs" onClick={(e) => { e.stopPropagation(); console.log('Log trade for fund:', fund.id);}}><PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Log Trade for Fund</Button>)}
+                        {isAdmin && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="mt-2 sm:mt-0 bg-white hover:bg-slate-100 text-xs"
+                                onClick={(e) => { e.stopPropagation(); }}
+                              >
+                                <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Log Trade for Fund
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-48">
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedFundContextForTrade({
+                                    clubId: pageData.clubId,
+                                    fundId: fund.id,
+                                    fundName: fund.name
+                                  });
+                                  setIsLogStockTradeModalOpen(true);
+                                }}
+                              >
+                                Stock Trade
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedFundContextForTrade({
+                                    clubId: pageData.clubId,
+                                    fundId: fund.id,
+                                    fundName: fund.name
+                                  });
+                                  setIsLogOptionTradeModalOpen(true);
+                                }}
+                              >
+                                Option Trade
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
                     </div>
                   </AccordionTrigger>
                   <AccordionContent className="px-4 py-3 border-t border-slate-200/75">
@@ -385,6 +527,39 @@ const PortfolioPage = () => {
 
       {transferDetails && (<Dialog open={openTransferModal} onOpenChange={(isOpen) => { if(!isOpen) setTransferDetails(null); setOpenTransferModal(isOpen); }}><InterFundTransferModal {...transferDetails} availableTargetFunds={activeFunds.filter(f => f.id !== transferDetails.sourceFund.id)} onTransferConfirm={handleTransferConfirm}/></Dialog>)}
 
+      {/* Stock Trade Modal */}
+      <Dialog open={isLogStockTradeModalOpen} onOpenChange={setIsLogStockTradeModalOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Log Stock Trade for {selectedFundContextForTrade?.fundName}</DialogTitle>
+          </DialogHeader>
+          {selectedFundContextForTrade && (
+            <LogStockTradeForm
+              funds={[{ id: selectedFundContextForTrade.fundId, name: selectedFundContextForTrade.fundName }]}
+              initialFundId={selectedFundContextForTrade.fundId}
+              onSubmit={handleLogStockTradeSubmit}
+              onCancel={() => setIsLogStockTradeModalOpen(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Option Trade Modal */}
+      <Dialog open={isLogOptionTradeModalOpen} onOpenChange={setIsLogOptionTradeModalOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Log Option Trade for {selectedFundContextForTrade?.fundName}</DialogTitle>
+          </DialogHeader>
+          {selectedFundContextForTrade && (
+            <LogOptionTradeForm
+              funds={[{ id: selectedFundContextForTrade.fundId, name: selectedFundContextForTrade.fundName }]}
+              initialFundId={selectedFundContextForTrade.fundId}
+              onSubmit={handleLogOptionTradeSubmit}
+              onCancel={() => setIsLogOptionTradeModalOpen(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

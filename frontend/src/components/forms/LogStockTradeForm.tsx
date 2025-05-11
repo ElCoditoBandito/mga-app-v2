@@ -1,13 +1,13 @@
 
 // frontend/src/components/forms/LogStockTradeForm.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'; // Assuming npx shadcn-ui@latest add radio-group
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'; // For layout if used directly
+import { CardDescription, CardHeader, CardTitle } from '@/components/ui/card'; // For layout if used directly
 import { AlertCircle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -103,8 +103,12 @@ const LogStockTradeForm: React.FC<LogStockTradeFormProps> = ({
     try {
       await onSubmit(formData);
       // Optionally reset form here if not unmounted by parent
-    } catch (submissionError: any) {
-      setError(submissionError.message || 'Failed to save trade. Please try again.');
+    } catch (submissionError: unknown) {
+      const errorMessage =
+        submissionError && typeof submissionError === 'object' && 'message' in submissionError
+          ? String(submissionError.message)
+          : 'Failed to save trade. Please try again.';
+      setError(errorMessage);
     } finally {
       setIsSubmitting(false);
     }

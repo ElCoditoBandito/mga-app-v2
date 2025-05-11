@@ -1,6 +1,6 @@
 
 // frontend/src/pages/MembersPage.tsx
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,8 +24,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
-import { UserPlus, Edit2, FileText, UserX, Download, Users as UsersIcon, DollarSign, BookOpenCheck } from 'lucide-react';
+// import { Skeleton } from '@/components/ui/skeleton';
+import { UserPlus, Edit2, FileText, UserX, Download, Users as UsersIcon, BookOpenCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // --- Mock Data Structures ---
@@ -161,9 +161,12 @@ const InviteMemberForm: React.FC<InviteMemberFormProps> = ({ onInvite }) => {
 // --- Main Component ---
 const MembersPage = () => {
   const { clubId } = useParams<{ clubId: string }>();
-  const [pageData, setPageData] = useState<MembersPageData>(MOCK_MEMBERS_PAGE_DATA);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [pageData, _setPageData] = useState<MembersPageData>(MOCK_MEMBERS_PAGE_DATA);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [isLoading, _setIsLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [error, _setError] = useState<Error | null>(null);
   const [showInviteDialog, setShowInviteDialog] = useState(false);
 
   const handleInviteMember = (email: string, role: ClubRole) => {

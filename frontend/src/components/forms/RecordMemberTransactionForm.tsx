@@ -9,17 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { CardHeader, CardTitle, CardDescription } from '@/components/ui/card'; // For consistent header styling
 import { AlertCircle, Info } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { MemberTransactionType } from '@/enums';
 
 // --- Mock Data Structures (align with backend Pydantic schemas) ---
 interface UserSlim {
   id: string; // user.id
   name: string; // display name (e.g., user.email or user.name)
-}
-
-export enum MemberTransactionType {
-  DEPOSIT = 'DEPOSIT',
-  WITHDRAWAL = 'WITHDRAWAL',
 }
 
 // Based on MemberTransactionCreate
@@ -87,8 +82,8 @@ const RecordMemberTransactionForm: React.FC<RecordMemberTransactionFormProps> = 
       setTransactionDate(new Date().toISOString().split('T')[0]);
       setAmount('');
       setNotes('');
-    } catch (submissionError: any) {
-      setError(submissionError.message || 'Failed to record transaction. Please try again.');
+    } catch (submissionError: unknown) {
+      setError(submissionError instanceof Error ? submissionError.message : 'Failed to record transaction. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
