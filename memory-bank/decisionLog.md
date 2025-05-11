@@ -2,10 +2,11 @@
 
 This file records architectural and implementation decisions using a list format.
 2025-05-05 08:33:00 - Initial creation based on codebase analysis.
+2025-05-10 13:25:00 - Updated with new decisions based on frontend-backend analysis.
 
 ## Decision: Async SQLAlchemy for Database Operations
 
-* **Rationale**: 
+* **Rationale**:
   * Improved scalability and performance for concurrent requests
   * Better resource utilization during I/O-bound operations
   * Consistent with FastAPI's async-first approach
@@ -70,3 +71,29 @@ This file records architectural and implementation decisions using a list format
   * Service Layer: Business logic and orchestration
   * CRUD Layer: Database operations
   * Model Layer: SQLAlchemy models
+
+## Decision: Option Valuation Strategy for MVP
+
+* **Rationale**:
+  * Current accounting_service returns 0.0 for option prices
+  * Accurate NAV calculation requires option valuation
+  * MVP needs a practical solution before launch
+
+* **Implementation Details**:
+  * For MVP: Implement manual price entry for options during transaction logging
+  * Store last known price in the asset record
+  * Use last known price for NAV calculations
+  * Future enhancement: Integrate with options pricing API or implement Black-Scholes model
+
+## Decision: Frontend-Backend Integration Approach
+
+* **Rationale**:
+  * Frontend currently uses mock data
+  * Need efficient data fetching and state management
+  * Consistent error handling across application
+
+* **Implementation Details**:
+  * Implement React Query for server state management
+  * Create custom hooks for each API endpoint
+  * Standardize error handling and loading states
+  * Implement optimistic updates where appropriate
