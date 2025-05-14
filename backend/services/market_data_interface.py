@@ -8,6 +8,7 @@ from backend.schemas.market_data import (
     CompanyProfile,
     NewsArticle,
     DividendData,
+    StockSplitData, # Added StockSplitData
     OptionQuote,
     ForexQuote,
     CryptoQuote,
@@ -42,7 +43,7 @@ class MarketDataServiceInterface(ABC):
     async def get_company_profile(
         self, 
         symbol: str, 
-        exchange: Optional[str] = None
+        exchange: Optional[str] = None # Exchange might be used by some providers to disambiguate
     ) -> Optional[CompanyProfile]:
         """Fetch company profile information."""
         pass
@@ -67,6 +68,17 @@ class MarketDataServiceInterface(ABC):
         exchange: Optional[str] = None
     ) -> List[DividendData]:
         """Fetch dividend payment history for an equity."""
+        pass
+    
+    @abstractmethod
+    async def get_stock_split_data(
+        self,
+        symbol: str,
+        from_date: Optional[date] = None,
+        to_date: Optional[date] = None,
+        exchange: Optional[str] = None
+    ) -> List[StockSplitData]:
+        """Fetch stock split history for an equity."""
         pass
 
     # --- Optional methods for other asset types based on initial models ---
@@ -106,7 +118,7 @@ class MarketDataServiceInterface(ABC):
         pass
 
     @abstractmethod
-    async def search_symbols(self, query: str, asset_type: Optional[MarketAssetType] = None, limit: int = 10) -> List[CompanyProfile]:
+    async def search_symbols(self, query: str, asset_type: Optional[MarketAssetType] = None, limit: int = 10) -> List[CompanyProfile]: # Returning CompanyProfile for richer search results
         """Search for symbols/companies based on a query string."""
         pass
 

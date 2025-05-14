@@ -30,72 +30,138 @@ export enum MarketTradingStatus {
   UNKNOWN = 'UNKNOWN',
 }
 
+export interface StockExchangeInfo {
+  name?: string; // Full exchange name (e.g., "NASDAQ - ALL MARKETS")
+  acronym?: string; // e.g., "NASDAQ"
+  mic?: string; // Market Identifier Code (e.g., "XNAS")
+  country?: string;
+  countryCode?: string; // e.g., "US"
+  city?: string;
+  website?: string;
+}
+
 /**
- * Represents a basic market identifier.
+ * Represents a basic market identifier. Enriched based on MarketStack v2 EOD and Ticker responses.
  */
 export interface MarketIdentifier {
   symbol: string;
-  exchange?: string; // e.g., NASDAQ, NYSE
-  assetType?: MarketAssetType;
+  name?: string; // Common name of the asset (e.g., "Apple Inc", from EOD response or /tickers)
+  assetType?: MarketAssetType; // e.g. "Stock" from EOD response
+  currency?: string; // Reporting currency (e.g., "USD", from EOD or /tickers response)
+  stockExchange?: StockExchangeInfo; // Detailed exchange info from /tickers response
 }
 
 /**
  * Represents a single point of historical price data for an asset.
+ * Fields align with MarketStack EOD response.
  */
 export interface HistoricalPricePoint {
-  date: string; // ISO 8601 date string (YYYY-MM-DD) or timestamp
+  date: string; // ISO 8601 datetime string (MarketStack: "YYYY-MM-DDTHH:MM:SS+0000")
   open: number;
   high: number;
   low: number;
   close: number;
-  adjustedClose?: number; // Important for stocks considering dividends/splits
+  adj_high?: number; // From MarketStack EOD
+  adj_low?: number; // From MarketStack EOD
+  adj_open?: number; // From MarketStack EOD
+  adj_close?: number; // From MarketStack EOD (use as primary adjusted close)
+  adj_volume?: number; // From MarketStack EOD
   volume: number;
+  split_factor?: number; // From MarketStack EOD
+  dividend?: number; // Dividend paid on this date, from MarketStack EOD
+  symbol?: string; // Included in EOD data items
+  exchange?: string; // MIC, included in EOD data items (maps to stockExchange.mic)
+  // MarketStack EOD also includes name, asset_type, price_currency directly in each data point
+  name_in_eod?: string; // 'name' from EOD data point
+  asset_type_in_eod?: string; // 'asset_type' from EOD data point
+  price_currency_in_eod?: string; // 'price_currency' from EOD data point
 }
 
 /**
  * Represents real-time or delayed quote information for an equity (stock, ETF).
+ * This will be primarily based on MarketStack EOD data for now due to v2 intraday/real-time limitations.
  */
 export interface EquityQuote extends MarketIdentifier {
-  price: number;
-  change: number; // Absolute change from previous close
-  percentChange: number; // Percentage change
-  previousClose: number;
-  open: number;
-  high: number; // Day's high
-  low: number; // Day's low
-  volume: number;
-  averageVolume?: number; // Average daily volume
+  price: number; // Typically the 'close' or 'adj_close' from latest EOD
+  change?: number; // Calculated: price - previousClose
+  percentChange?: number; // Calculated: (change / previousClose) * 100
+  previousClose?: number; // adj_open or open from previous day, or calculated from change
+  open?: number; // From EOD
+  high?: number; // Day's high from EOD
+  low?: number; // Day's low from EOD
+  volume?: number; // From EOD
+  adj_close?: number; // From EOD - useful for calculations
+  adj_open?: number; // From EOD
+  timestamp: string; // Date of the EOD data
+  
+  // Fields that are less likely from basic EOD, more from profile or specialized quote endpoints
+  averageVolume?: number; 
   marketCap?: number;
-  yearHigh?: number;
-  yearLow?: number;
-  timestamp: string; // ISO 8601 datetime string or timestamp of the last trade/update
-  tradingStatus?: MarketTradingStatus;
-  ask?: number;
-  bid?: number;
+  yearHigh?: number; // 52-week high
+  yearLow?: number; // 52-week low
+  tradingStatus?: MarketTradingStatus; // Hard to determine from EOD, might be inferred or from another source
+  ask?: number; // Not typically in EOD
+  bid?: number; // Not typically in EOD
   askSize?: number;
   bidSize?: number;
+  eps?: number; // Earnings Per Share (TTM)
+  peRatio?: number; // Price to Earnings Ratio
+  beta?: number; // Stock's volatility
+  earningDate?: string; // ISO 8601
+  dividend_eod?: number; // Dividend amount directly from EOD if available
+  split_factor_eod?: number; // Split factor directly from EOD if available
+}
+
+export interface KeyExecutive {
+  name?: string;
+  title?: string; // MarketStack uses "function"
+  salary?: string; // MarketStack returns as string e.g. "3.36M"
+  exercised?: string;
+  birthYear?: string;
 }
 
 /**
  * Detailed profile information for a company or equity.
+ * Expanded based on MarketStack v2 /tickerinfo and /tickers/{symbol} responses.
  */
 export interface CompanyProfile extends MarketIdentifier {
-  companyName: string;
-  description?: string;
-  industry?: string;
-  sector?: string;
+  // name, symbol, currency, stockExchange are from MarketIdentifier
+  cik?: string; // From /tickers/{symbol} & /tickerinfo
+  isin?: string; // From /tickers/{symbol}
+  cusip?: string; // From /tickers/{symbol}
+  ein?: string; // Employer ID Number, from /tickers/{symbol} (ein_employer_id)
+  lei?: string; // Legal Entity Identifier, from /tickers/{symbol}
+  
+  sector?: string; // From /tickers/{symbol} & /tickerinfo
+  industry?: string; // From /tickers/{symbol} & /tickerinfo
+  sicCode?: string; // From /tickers/{symbol} (sic_code)
+  sicName?: string; // From /tickers/{symbol} (sic_name)
+  itemType?: string; // e.g. "equity", from /tickers/{symbol}
+
+  // From /tickerinfo
+  about?: string; // Company description (long description)
   website?: string;
-  logoUrl?: string;
-  ceo?: string;
-  employees?: number;
-  country?: string;
-  currency?: string; // e.g., USD, EUR
-  isin?: string; // International Securities Identification Number
-  cusip?: string; // Committee on Uniform Security Identification Procedures number
+  fullTimeEmployees?: string; // MarketStack returns as string, e.g., "221000"
+  ipoDate?: string; // ISO 8601 date string
+  dateFounded?: string; // ISO 8601 date string
+  keyExecutives?: KeyExecutive[];
+  incorporationState?: string; // MarketStack: incorporation_description or address.stateOrCountryDescription
+  fiscalYearEnd?: string; // MarketStack: end_fiscal (e.g., "0630" for June 30th)
+  phoneNumber?: string;
+  address?: {
+    street1?: string;
+    street2?: string;
+    city?: string;
+    stateOrCountry?: string; // MarketStack: stateOrCountryDescription or stateOrCountry
+    postalCode?: string;
+  };
+  // Future expansion: analystRatings from /companyratings, detailed financials
 }
+
 
 /**
  * Represents a news article related to the market or a specific symbol.
+ * (MarketStack v2 does not seem to have a general news endpoint like v1)
  */
 export interface NewsArticle {
   id: string; // Unique identifier for the news article
@@ -111,16 +177,28 @@ export interface NewsArticle {
 }
 
 /**
- * Represents dividend information for an equity.
+ * Represents dividend information for an equity. Based on MarketStack v2 /dividends response.
  */
 export interface DividendData extends MarketIdentifier {
-  exDividendDate?: string; // ISO 8601 date string
-  paymentDate?: string; // ISO 8601 date string
-  recordDate?: string; // ISO 8601 date string
-  amount?: number; // Dividend per share
-  frequency?: string; // e.g., "Quarterly", "Annually"
-  yield?: number; // Dividend yield
+  // symbol is inherited
+  date: string; // Date of the dividend event (MarketStack uses this as the primary date for the entry)
+  dividendAmount: number; // 'dividend' field from MarketStack
+  payment_date?: string; // 'payment_date' from MarketStack (ISO 8601 datetime)
+  record_date?: string; // 'record_date' from MarketStack (ISO 8601 datetime)
+  declaration_date?: string; // 'declaration_date' from MarketStack (ISO 8601 datetime)
+  frequency?: string; // 'distr_freq' from MarketStack (e.g., 'q' for quarterly)
 }
+
+/**
+ * Represents stock split information. Based on MarketStack v2 /splits response.
+ */
+export interface StockSplitData extends MarketIdentifier {
+  // symbol is inherited
+  date: string; // Date of the split (YYYY-MM-DD)
+  splitFactor: number; // e.g., 4.0 for a 4:1 split (from 'split_factor')
+  stockSplitRatio?: string; // Text representation, e.g., "4:1" (from 'stock_split')
+}
+
 
 /**
  * Represents an options contract.
@@ -131,7 +209,6 @@ export interface OptionContract extends MarketIdentifier {
   strikePrice: number;
   expirationDate: string; // ISO 8601 date string
   optionType: 'call' | 'put';
-  currency?: string;
 }
 
 /**
@@ -189,17 +266,21 @@ export interface CryptoQuote {
 
 /**
  * Represents an index quote (e.g., S&P 500, NASDAQ Composite).
+ * Uses MarketStack /indexinfo or /eod for an index symbol.
  */
 export interface IndexQuote extends MarketIdentifier {
-  name: string;
-  price: number;
-  change: number;
-  percentChange: number;
-  previousClose?: number;
-  open?: number;
-  high?: number;
-  low?: number;
-  timestamp: string; // ISO 8601 datetime string
+  // name is inherited
+  price?: number; // Current price
+  change?: number; // Calculated or from price_change_day
+  percentChange?: number; // Calculated or from percentage_day
+  timestamp?: string; // ISO 8601 datetime string from 'date' in indexinfo
+  // From /indexinfo
+  region?: string;
+  price_change_day_str?: string; // From indexinfo (string, e.g., "71")
+  percentage_day_str?: string; // From indexinfo (string, e.g., "0.84%")
+  percentage_week_str?: string;
+  percentage_month_str?: string;
+  percentage_year_str?: string;
 }
 
 /**
