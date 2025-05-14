@@ -6,7 +6,8 @@ from typing import List, Optional, Dict, Any
 from datetime import date, datetime, timezone
 from backend.services.market_data_interface import MarketDataServiceInterface
 from backend.schemas.market_data import (
-    CompanyAddress, # Added CompanyAddress
+    CompanyAddress,
+    StockExchangeInfo, # Added StockExchangeInfo
     EquityQuote,
     HistoricalPricePoint,
     CompanyProfile,
@@ -106,10 +107,7 @@ class MarketStackAdapter(MarketDataServiceInterface):
     def _map_eod_item_to_historical_price_point(self, item: Dict[str, Any]) -> HistoricalPricePoint:
         dt_object = self._parse_iso_datetime(item.get("date"))
         if not dt_object:
-             # This case should be handled or logged more gracefully, 
-             # possibly by filtering out such records or raising an error.
             logger.error(f"Historical data point for symbol {item.get('symbol')} has invalid date: {item.get('date')}. Skipping.")
-            # Depending on strictness, you might raise an error or return a sentinel value
             raise ValueError(f"Invalid date in historical data: {item.get('date')}") 
 
         return HistoricalPricePoint(
@@ -125,24 +123,26 @@ class MarketStackAdapter(MarketDataServiceInterface):
     def _map_eod_item_to_equity_quote(self, item: Dict[str, Any], symbol_override: Optional[str] = None) -> EquityQuote:
         timestamp = self._parse_iso_datetime(item.get("date")) or datetime.now(timezone.utc)
         symbol = item.get("symbol", symbol_override or "UNKNOWN")
-        exchange_mic = item.get("exchange") # Marketstack EOD provides MIC in 'exchange' field
+        
+        stock_ex_info = StockExchangeInfo(
+            mic=item.get("exchange") # Marketstack EOD provides MIC in 'exchange' field
+        )
+        # Marketstack EOD /tickers/{symbol}/eod/latest might not have 'exchange_code' or full stock_exchange details
+        # So we prioritize MIC from the EOD item.
 
-        # Basic change calculation from EOD data, might not be previous day's close
         change = item.get("adj_close", item["close"]) - item.get("adj_open", item["open"]) if item.get("adj_open") is not None and item.get("adj_close") is not None else 0
         percent_change = (change / item["adj_open"]) * 100 if item.get("adj_open") and item["adj_open"] != 0 else 0
 
         return EquityQuote(
             symbol=symbol,
             name=item.get("name"),
-            exchangeSymbol=item.get("exchange_code"), # From EOD example: "NASDAQ"
-            exchangeShortName=exchange_mic, # MIC e.g. XNAS
-            assetType=MarketAssetType(item["asset_type"].upper()) if item.get("asset_type") else MarketAssetType.STOCK,
-            country=None, # Not directly in EOD item, would be from profile
+            stock_exchange_info=stock_ex_info,
+            asset_type=MarketAssetType(item["asset_type"].upper()) if item.get("asset_type") else MarketAssetType.STOCK,
             currency=item.get("price_currency"),
             price=item["close"], 
             change=change,
             percentChange=percent_change,
-            previousClose=item.get("adj_open"), # EOD 'open' or 'adj_open' as a proxy for prev close in some contexts
+            previousClose=item.get("adj_open"),
             open=item["open"],
             high=item["high"],
             low=item["low"],
@@ -152,10 +152,10 @@ class MarketStackAdapter(MarketDataServiceInterface):
             yearHigh=None, 
             yearLow=None,
             averageVolume=None,
-            tradingStatus=None, # EOD is implicitly 'CLOSED' for the date given, but this field is for live status
+            tradingStatus=None,
             eps=None, peRatio=None, beta=None, fiftyTwoWeekHigh=None, fiftyTwoWeekLow=None, priceAvg50=None, priceAvg200=None, sharesOutstanding=None, earningDate=None,
-            dividend_eod=item.get("dividend"), # Added
-            split_factor_eod=item.get("split_factor") # Added
+            dividend_eod=item.get("dividend"),
+            split_factor_eod=item.get("split_factor")
         )
 
     async def get_equity_quote(self, symbol: str, exchange: Optional[str] = None) -> Optional[EquityQuote]:
@@ -209,15 +209,10 @@ class MarketStackAdapter(MarketDataServiceInterface):
             return []
 
     def _map_ticker_info_to_company_profile(self, item: Dict[str, Any]) -> CompanyProfile:
-        addr = item.get("address", {}) # Ensure addr is a dict, even if address is missing
-        
-        # Handle fullTimeEmployees conversion
+        addr = item.get("address", {}) 
         fte_value = item.get("full_time_employees")
-        fte_str: Optional[str] = None
-        if fte_value is not None:
-            fte_str = str(fte_value)
+        fte_str: Optional[str] = str(fte_value) if fte_value is not None else None
 
-        # Create CompanyAddress object
         address_obj = None
         if isinstance(addr, dict):
             address_obj = CompanyAddress(
@@ -228,39 +223,44 @@ class MarketStackAdapter(MarketDataServiceInterface):
                 postal_code=addr.get("postal_code"),
                 state_or_country_description=addr.get("stateOrCountryDescription")
             )
-        elif isinstance(addr, str): # Fallback if addr is unexpectedly a string
+        elif isinstance(addr, str):
             address_obj = CompanyAddress(street1=addr) 
             logger.warning(f"Address for {item.get('ticker')} was a string, mapped to street1: {addr}")
-
+        
+        # Initial stock_exchange_info from /tickerinfo data
+        # /tickerinfo provides exchange_code directly, no sub-object for stock_exchange
+        # It might also provide country directly (though typically from address.stateOrCountry if it's a country code)
+        stock_ex_info = StockExchangeInfo(
+            acronym=item.get("exchange_code"), # /tickerinfo has exchange_code
+            # country_code from address.stateOrCountry if it's a 2-letter code, or from /tickers endpoint later
+            country_code=addr.get("stateOrCountry") if isinstance(addr, dict) and addr.get("stateOrCountry") and len(addr.get("stateOrCountry")) == 2 else None,
+            name=item.get("exchange_name") # If /tickerinfo provides a full exchange name
+        )
 
         profile = CompanyProfile(
             symbol=item["ticker"],
             name=item.get("name"),
-            exchangeSymbol=item.get("exchange_code"), 
-            assetType=MarketAssetType.STOCK, 
-            country=addr.get("stateOrCountry") if isinstance(addr, dict) and addr.get("stateOrCountry") and len(addr.get("stateOrCountry")) == 2 else None,
+            stock_exchange_info=stock_ex_info,
+            asset_type=MarketAssetType.STOCK, 
             currency=item.get("reporting_currency"),
-            shortName=item.get("name"), 
-            longDescription=item.get("about"),
+            about=item.get("about"),
             industry=item.get("industry"),
             sector=item.get("sector"),
-            website=item.get("website"),
-            fullTimeEmployees=fte_str,
-            ipoDate=self._parse_iso_datetime(item.get("ipo_date")).isoformat() if self._parse_iso_datetime(item.get("ipo_date")) else None,
-            foundedYear=int(self._parse_iso_datetime(item.get("date_founded")).year) if self._parse_iso_datetime(item.get("date_founded")) else None,
-            address_details=address_obj, # Use the created CompanyAddress object
-            city=addr.get("city") if isinstance(addr, dict) else None,
-            state=addr.get("stateOrCountry") if isinstance(addr, dict) and addr.get("stateOrCountry") and len(addr.get("stateOrCountry")) == 2 else None,
-            zipCode=addr.get("postal_code") if isinstance(addr, dict) else None,
-            phoneNumber=item.get("phone"),
+            website=item.get("website"), # Validator handles HttpUrl conversion
+            full_time_employees=fte_str,
+            ipo_date=self._parse_iso_datetime(item.get("ipo_date")).date() if self._parse_iso_datetime(item.get("ipo_date")) else None,
+            date_founded=self._parse_iso_datetime(item.get("date_founded")).date() if self._parse_iso_datetime(item.get("date_founded")) else None,
+            address_details=address_obj,
+            phone_number=item.get("phone"),
+            # These are typically from /tickers/{symbol} or other sources
             isin=None, 
             cusip=None,
             cik=None, 
             lei=None, 
-            sicCode=None, 
-            sicName=None
+            sic_code=None, 
+            sic_name=None 
         )
-        logger.debug(f"Mapped company profile for {item.get('ticker')}")
+        logger.debug(f"Mapped company profile for {item.get('ticker')} from /tickerinfo")
         return profile
 
     async def get_company_profile(self, symbol: str, exchange: Optional[str] = None) -> Optional[CompanyProfile]:
@@ -270,36 +270,53 @@ class MarketStackAdapter(MarketDataServiceInterface):
             data = await self._request(endpoint="/tickerinfo", params=params)
             if data and "data" in data and isinstance(data["data"], dict):
                 ticker_info_data = data["data"]
+                profile = self._map_ticker_info_to_company_profile(ticker_info_data)
+
                 ticker_details_data = None
                 try:
+                    # The /tickers/{symbol} endpoint provides richer stock_exchange details
                     ticker_endpoint = f"/tickers/{symbol}"
-                    if exchange: 
-                        ticker_endpoint = f"/tickers/{symbol}.{exchange}"
-                    ticker_details_data = await self._request(endpoint=ticker_endpoint)
+                    # Note: Marketstack documentation for /tickers/{symbol} doesn't mention adding .EXCHANGE suffix for this specific endpoint
+                    # but it's good to be consistent if other parts of their API use it for disambiguation.
+                    # For now, assuming /tickers/{symbol} takes the plain symbol.
+                    # If exchange-specific /tickers/ endpoint is needed, the logic would be: 
+                    # if exchange: ticker_endpoint = f"/tickers/{symbol}.{exchange}"
+                    ticker_details_data = await self._request(endpoint=ticker_endpoint) 
                 except MarketDataError as mde_ticker:
                     logger.warning(f"Could not fetch supplementary details from /tickers/{symbol} for profile: {mde_ticker}")
-
-                profile = self._map_ticker_info_to_company_profile(ticker_info_data)
                 
                 if ticker_details_data: # Merge data from /tickers/{symbol}
-                    profile.cik = ticker_details_data.get("cik")
-                    profile.isin = ticker_details_data.get("isin")
-                    profile.cusip = ticker_details_data.get("cusip")
-                    if ticker_details_data.get("stock_exchange"):
-                        profile.exchangeSymbol = ticker_details_data["stock_exchange"].get("acronym", profile.exchangeSymbol)
-                        profile.exchangeShortName = ticker_details_data["stock_exchange"].get("mic", profile.exchangeShortName)
-                        profile.country = ticker_details_data["stock_exchange"].get("country_code",profile.country)
-                    profile.sicCode = ticker_details_data.get("sic_code")
-                    profile.sicName = ticker_details_data.get("sic_description")
-                    profile.lei = ticker_details_data.get("lei")
+                    profile.cik = ticker_details_data.get("cik", profile.cik)
+                    profile.isin = ticker_details_data.get("isin", profile.isin)
+                    profile.cusip = ticker_details_data.get("cusip", profile.cusip)
+                    profile.lei = ticker_details_data.get("lei", profile.lei)
+                    profile.sic_code = ticker_details_data.get("sic_code", profile.sic_code)
+                    profile.sic_name = ticker_details_data.get("sic_description", profile.sic_name)
+                    
+                    # Merge stock_exchange details from /tickers/{symbol} into profile.stock_exchange_info
+                    if not profile.stock_exchange_info: # Ensure it exists
+                        profile.stock_exchange_info = StockExchangeInfo()
+                    
+                    ms_stock_exchange = ticker_details_data.get("stock_exchange")
+                    if isinstance(ms_stock_exchange, dict):
+                        profile.stock_exchange_info.name = ms_stock_exchange.get("name", profile.stock_exchange_info.name)
+                        profile.stock_exchange_info.acronym = ms_stock_exchange.get("acronym", profile.stock_exchange_info.acronym)
+                        profile.stock_exchange_info.mic = ms_stock_exchange.get("mic", profile.stock_exchange_info.mic)
+                        profile.stock_exchange_info.country = ms_stock_exchange.get("country", profile.stock_exchange_info.country)
+                        profile.stock_exchange_info.country_code = ms_stock_exchange.get("country_code", profile.stock_exchange_info.country_code)
+                        profile.stock_exchange_info.city = ms_stock_exchange.get("city", profile.stock_exchange_info.city)
+                        # Marketstack uses 'website' for this, our model uses 'website_str' alias
+                        profile.stock_exchange_info.website = ms_stock_exchange.get("website") 
 
+                logger.debug(f"Final mapped company profile for {symbol}")
                 return profile
+            
             logger.warning(f"No profile data found in response for {symbol} from /tickerinfo. Response: {data}")
             return None
         except MarketDataError as e:
-            logger.error(f"MarketStack get_company_profile error for {symbol}: {e}") # Log the full error
+            logger.error(f"MarketStack get_company_profile error for {symbol}: {e}")
             return None
-        except Exception as e: # Catch any other unexpected errors during mapping or processing
+        except Exception as e:
             logger.exception(f"Unexpected error in get_company_profile for {symbol}: {e}")
             return None
 
@@ -317,11 +334,11 @@ class MarketStackAdapter(MarketDataServiceInterface):
     def _map_dividend_item(self, item: Dict[str, Any]) -> DividendData:
         return DividendData(
             symbol=item["symbol"],
-            amount=float(item["dividend"]),
-            exDividendDate=self._parse_iso_datetime(item.get("date")).isoformat() if self._parse_iso_datetime(item.get("date")) else None,
-            paymentDate=self._parse_iso_datetime(item.get("payment_date")).isoformat() if self._parse_iso_datetime(item.get("payment_date")) else None,
-            recordDate=self._parse_iso_datetime(item.get("record_date")).isoformat() if self._parse_iso_datetime(item.get("record_date")) else None,
-            declaredDate=self._parse_iso_datetime(item.get("declaration_date")).isoformat() if self._parse_iso_datetime(item.get("declaration_date")) else None,
+            dividend_amount=float(item["dividend"]),
+            date=self._parse_iso_datetime(item.get("date")),
+            payment_date=self._parse_iso_datetime(item.get("payment_date")),
+            record_date=self._parse_iso_datetime(item.get("record_date")),
+            declaration_date=self._parse_iso_datetime(item.get("declaration_date")),
             frequency=item.get("distr_freq")
         )
 
@@ -351,12 +368,12 @@ class MarketStackAdapter(MarketDataServiceInterface):
     def _map_split_item(self, item: Dict[str, Any]) -> StockSplitData:
         return StockSplitData(
             symbol=item["symbol"],
-            date=self._parse_iso_datetime(item.get("date")).isoformat() if self._parse_iso_datetime(item.get("date")) else "",
+            date=self._parse_iso_datetime(item.get("date")),
             split_factor=float(item["split_factor"]),
             stock_split_ratio=item.get("stock_split", "N/A")
         )
 
-    async def get_stock_split_data( # Renamed from get_stock_splits
+    async def get_stock_split_data(
         self, 
         symbol: str, 
         from_date: Optional[date] = None, 
@@ -376,7 +393,7 @@ class MarketStackAdapter(MarketDataServiceInterface):
                 return [self._map_split_item(item) for item in data["data"]]
             return []
         except MarketDataError as e:
-            logger.error(f"MarketStack get_stock_split_data error for {symbol}: {e}") # Updated log message
+            logger.error(f"MarketStack get_stock_split_data error for {symbol}: {e}")
             return []
 
     async def get_option_quote(self, contract_symbol: str) -> Optional[OptionQuote]:
@@ -398,22 +415,24 @@ class MarketStackAdapter(MarketDataServiceInterface):
             data = await self._request(endpoint="/indexinfo", params=params)
             if data and isinstance(data, list) and data:
                 index_data = data[0]
+                # IndexQuote model expects stock_exchange_info, but /indexinfo doesn't provide it directly.
+                # We will pass None for now, or one could attempt to derive it if needed.
                 return IndexQuote(
                     symbol=index_data["benchmark"], 
                     name=index_data["benchmark"],
-                    exchangeSymbol=None, 
+                    stock_exchange_info=None, # Or map if possible
                     price=float(index_data["price"]),
                     change=float(index_data["price_change_day"]),
                     percentChange=float(index_data["percentage_day"].rstrip('%')),
                     timestamp=self._parse_iso_datetime(index_data.get("date")) or datetime.now(timezone.utc),
-                    country=index_data.get("country")
+                    region=index_data.get("country") # /indexinfo uses 'country' for region
                 )
             logger.warning(f"No data returned for index {symbol} from /indexinfo")
             return None
         except MarketDataError as e:
             logger.error(f"MarketStack get_index_quote error for {symbol}: {e}")
             return None
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError, KeyError) as e:
             logger.error(f"Error mapping index data for {symbol}: {e}")
             return None
 
@@ -434,13 +453,21 @@ class MarketStackAdapter(MarketDataServiceInterface):
             profiles: List[CompanyProfile] = []
             if data and "data" in data:
                 for item in data["data"]:
-                    stock_ex = item.get("stock_exchange", {})
+                    # /tickerslist provides stock_exchange object directly
+                    ms_stock_exchange = item.get("stock_exchange", {})
+                    stock_ex_info = StockExchangeInfo(
+                        name=ms_stock_exchange.get("name"),
+                        acronym=ms_stock_exchange.get("acronym"),
+                        mic=ms_stock_exchange.get("mic"),
+                        country=ms_stock_exchange.get("country"),
+                        country_code=ms_stock_exchange.get("country_code")
+                    )
                     profiles.append(CompanyProfile(
                         symbol=item["ticker"],
                         name=item.get("name"),
-                        exchangeSymbol=stock_ex.get("acronym"),
-                        exchangeShortName=stock_ex.get("mic"),
-                        assetType=MarketAssetType.STOCK if item.get("has_eod") or item.get("has_intraday") else MarketAssetType.OTHER,
+                        stock_exchange_info=stock_ex_info,
+                        asset_type=MarketAssetType.STOCK if item.get("has_eod") or item.get("has_intraday") else MarketAssetType.OTHER,
+                        # Other fields for CompanyProfile are not available in /tickerslist
                     ))
             return profiles
         except MarketDataError as e:
