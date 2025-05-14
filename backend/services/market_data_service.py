@@ -8,6 +8,7 @@ from backend.schemas.market_data import (
     CompanyProfile,
     NewsArticle,
     DividendData,
+    StockSplitData, # Added
     OptionQuote,
     ForexQuote,
     CryptoQuote,
@@ -80,6 +81,15 @@ class MarketDataService(MarketDataServiceInterface):
         exchange: Optional[str] = None
     ) -> List[DividendData]:
         return await self._adapter.get_dividend_data(symbol, from_date, to_date, exchange)
+
+    async def get_stock_split_data( # Added
+        self,
+        symbol: str,
+        from_date: Optional[date] = None,
+        to_date: Optional[date] = None,
+        exchange: Optional[str] = None
+    ) -> List[StockSplitData]:
+        return await self._adapter.get_stock_split_data(symbol, from_date, to_date, exchange)
 
     async def get_option_quote(
         self, 

@@ -327,7 +327,7 @@ class MarketStackAdapter(MarketDataServiceInterface):
             stock_split_ratio=item.get("stock_split", "N/A")
         )
 
-    async def get_stock_splits(
+    async def get_stock_split_data( # Renamed from get_stock_splits
         self, 
         symbol: str, 
         from_date: Optional[date] = None, 
@@ -347,7 +347,7 @@ class MarketStackAdapter(MarketDataServiceInterface):
                 return [self._map_split_item(item) for item in data["data"]]
             return []
         except MarketDataError as e:
-            logger.error(f"MarketStack get_stock_splits error for {symbol}: {e.message}")
+            logger.error(f"MarketStack get_stock_split_data error for {symbol}: {e.message}") # Updated log message
             return []
 
     async def get_option_quote(self, contract_symbol: str) -> Optional[OptionQuote]:
