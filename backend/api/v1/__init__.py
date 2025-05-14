@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 # Import endpoint routers
 from .endpoints import users, clubs, assets, transactions # Add others as they are created
+from .endpoints import market_data # <--- NEW: Import the market_data router
 
 # Create the v1 router
 api_router = APIRouter()
@@ -13,5 +14,8 @@ api_router.include_router(users.router, prefix="/users", tags=["Users"])
 api_router.include_router(clubs.router, prefix="/clubs", tags=["Clubs"])
 api_router.include_router(assets.router, prefix="/assets", tags=["Assets"])
 api_router.include_router(transactions.router, prefix="/clubs/{club_id}/transactions", tags=["Transactions"])
-# Include other routers here (e.g., transactions, members if separated)
 
+# Include the new market_data router
+api_router.include_router(market_data.router, prefix="/market", tags=["Market Data"]) # <--- NEW: Include the router
+
+# Include other routers here (e.g., transactions, members if separated)
