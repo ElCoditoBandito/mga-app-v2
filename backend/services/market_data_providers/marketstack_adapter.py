@@ -6,12 +6,13 @@ from typing import List, Optional, Dict, Any
 from datetime import date, datetime, timezone
 from backend.services.market_data_interface import MarketDataServiceInterface
 from backend.schemas.market_data import (
+    CompanyAddress, # Added CompanyAddress
     EquityQuote,
     HistoricalPricePoint,
     CompanyProfile,
     NewsArticle,
     DividendData,
-    StockSplitData, # Added
+    StockSplitData, 
     OptionQuote,
     ForexQuote,
     CryptoQuote,
@@ -208,33 +209,56 @@ class MarketStackAdapter(MarketDataServiceInterface):
             return []
 
     def _map_ticker_info_to_company_profile(self, item: Dict[str, Any]) -> CompanyProfile:
-        addr = item.get("address", {})
+        addr = item.get("address", {}) # Ensure addr is a dict, even if address is missing
+        
+        # Handle fullTimeEmployees conversion
+        fte_value = item.get("full_time_employees")
+        fte_str: Optional[str] = None
+        if fte_value is not None:
+            fte_str = str(fte_value)
+
+        # Create CompanyAddress object
+        address_obj = None
+        if isinstance(addr, dict):
+            address_obj = CompanyAddress(
+                street1=addr.get("street1"),
+                street2=addr.get("street2"),
+                city=addr.get("city"),
+                state_or_country=addr.get("stateOrCountry"),
+                postal_code=addr.get("postal_code"),
+                state_or_country_description=addr.get("stateOrCountryDescription")
+            )
+        elif isinstance(addr, str): # Fallback if addr is unexpectedly a string
+            address_obj = CompanyAddress(street1=addr) 
+            logger.warning(f"Address for {item.get('ticker')} was a string, mapped to street1: {addr}")
+
+
         profile = CompanyProfile(
             symbol=item["ticker"],
             name=item.get("name"),
             exchangeSymbol=item.get("exchange_code"), 
             assetType=MarketAssetType.STOCK, 
-            country=addr.get("stateOrCountry") if addr.get("stateOrCountry") and len(addr.get("stateOrCountry")) == 2 else None,
+            country=addr.get("stateOrCountry") if isinstance(addr, dict) and addr.get("stateOrCountry") and len(addr.get("stateOrCountry")) == 2 else None,
             currency=item.get("reporting_currency"),
             shortName=item.get("name"), 
             longDescription=item.get("about"),
             industry=item.get("industry"),
             sector=item.get("sector"),
             website=item.get("website"),
-            fullTimeEmployees=int(item["full_time_employees"]) if item.get("full_time_employees") else None,
+            fullTimeEmployees=fte_str,
             ipoDate=self._parse_iso_datetime(item.get("ipo_date")).isoformat() if self._parse_iso_datetime(item.get("ipo_date")) else None,
             foundedYear=int(self._parse_iso_datetime(item.get("date_founded")).year) if self._parse_iso_datetime(item.get("date_founded")) else None,
-            address=f'{addr.get("street1", "")} {addr.get("street2", "")}'.strip(),
-            city=addr.get("city"),
-            state=addr.get("stateOrCountry") if addr.get("stateOrCountry") and len(addr.get("stateOrCountry")) == 2 else None,
-            zipCode=addr.get("postal_code"),
+            address_details=address_obj, # Use the created CompanyAddress object
+            city=addr.get("city") if isinstance(addr, dict) else None,
+            state=addr.get("stateOrCountry") if isinstance(addr, dict) and addr.get("stateOrCountry") and len(addr.get("stateOrCountry")) == 2 else None,
+            zipCode=addr.get("postal_code") if isinstance(addr, dict) else None,
             phoneNumber=item.get("phone"),
             isin=None, 
             cusip=None,
             cik=None, 
-            lei=None, # Placeholder for lei
-            sicCode=None, # Placeholder for sicCode
-            sicName=None # Placeholder for sicName
+            lei=None, 
+            sicCode=None, 
+            sicName=None
         )
         logger.debug(f"Mapped company profile for {item.get('ticker')}")
         return profile
@@ -245,6 +269,7 @@ class MarketStackAdapter(MarketDataServiceInterface):
         try:
             data = await self._request(endpoint="/tickerinfo", params=params)
             if data and "data" in data and isinstance(data["data"], dict):
+                ticker_info_data = data["data"]
                 ticker_details_data = None
                 try:
                     ticker_endpoint = f"/tickers/{symbol}"
@@ -252,26 +277,30 @@ class MarketStackAdapter(MarketDataServiceInterface):
                         ticker_endpoint = f"/tickers/{symbol}.{exchange}"
                     ticker_details_data = await self._request(endpoint=ticker_endpoint)
                 except MarketDataError as mde_ticker:
-                    logger.warning(f"Could not fetch supplementary details from /tickers/{symbol} for profile: {mde_ticker.message}")
+                    logger.warning(f"Could not fetch supplementary details from /tickers/{symbol} for profile: {mde_ticker}")
 
-                profile = self._map_ticker_info_to_company_profile(data["data"])
+                profile = self._map_ticker_info_to_company_profile(ticker_info_data)
                 
                 if ticker_details_data: # Merge data from /tickers/{symbol}
                     profile.cik = ticker_details_data.get("cik")
                     profile.isin = ticker_details_data.get("isin")
                     profile.cusip = ticker_details_data.get("cusip")
-                    profile.exchangeSymbol = ticker_details_data.get("stock_exchange", {}).get("acronym", profile.exchangeSymbol)
-                    profile.exchangeShortName = ticker_details_data.get("stock_exchange", {}).get("mic", profile.exchangeShortName)
-                    profile.country = ticker_details_data.get("stock_exchange",{}).get("country_code",profile.country)
+                    if ticker_details_data.get("stock_exchange"):
+                        profile.exchangeSymbol = ticker_details_data["stock_exchange"].get("acronym", profile.exchangeSymbol)
+                        profile.exchangeShortName = ticker_details_data["stock_exchange"].get("mic", profile.exchangeShortName)
+                        profile.country = ticker_details_data["stock_exchange"].get("country_code",profile.country)
                     profile.sicCode = ticker_details_data.get("sic_code")
-                    profile.sicName = ticker_details_data.get("sic_description") # Added sicName mapping
-                    profile.lei = ticker_details_data.get("lei") # Added LEI mapping
+                    profile.sicName = ticker_details_data.get("sic_description")
+                    profile.lei = ticker_details_data.get("lei")
 
                 return profile
             logger.warning(f"No profile data found in response for {symbol} from /tickerinfo. Response: {data}")
             return None
         except MarketDataError as e:
-            logger.error(f"MarketStack get_company_profile error for {symbol}: {e.message}")
+            logger.error(f"MarketStack get_company_profile error for {symbol}: {e}") # Log the full error
+            return None
+        except Exception as e: # Catch any other unexpected errors during mapping or processing
+            logger.exception(f"Unexpected error in get_company_profile for {symbol}: {e}")
             return None
 
     async def get_news_articles(
@@ -316,7 +345,7 @@ class MarketStackAdapter(MarketDataServiceInterface):
                 return [self._map_dividend_item(item) for item in data["data"]]
             return []
         except MarketDataError as e:
-            logger.error(f"MarketStack get_dividend_data error for {symbol}: {e.message}")
+            logger.error(f"MarketStack get_dividend_data error for {symbol}: {e}")
             return []
 
     def _map_split_item(self, item: Dict[str, Any]) -> StockSplitData:
@@ -347,7 +376,7 @@ class MarketStackAdapter(MarketDataServiceInterface):
                 return [self._map_split_item(item) for item in data["data"]]
             return []
         except MarketDataError as e:
-            logger.error(f"MarketStack get_stock_split_data error for {symbol}: {e.message}") # Updated log message
+            logger.error(f"MarketStack get_stock_split_data error for {symbol}: {e}") # Updated log message
             return []
 
     async def get_option_quote(self, contract_symbol: str) -> Optional[OptionQuote]:
@@ -382,7 +411,7 @@ class MarketStackAdapter(MarketDataServiceInterface):
             logger.warning(f"No data returned for index {symbol} from /indexinfo")
             return None
         except MarketDataError as e:
-            logger.error(f"MarketStack get_index_quote error for {symbol}: {e.message}")
+            logger.error(f"MarketStack get_index_quote error for {symbol}: {e}")
             return None
         except (ValueError, TypeError) as e:
             logger.error(f"Error mapping index data for {symbol}: {e}")
@@ -415,7 +444,7 @@ class MarketStackAdapter(MarketDataServiceInterface):
                     ))
             return profiles
         except MarketDataError as e:
-            logger.error(f"MarketStack search_symbols error for '{query}': {e.message}")
+            logger.error(f"MarketStack search_symbols error for '{query}': {e}")
             return []
 
     async def close(self):

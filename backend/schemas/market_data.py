@@ -275,8 +275,13 @@ class PaginatedResponse(BaseModel, Generic[T]):
     totalItems: Optional[int] = None
     totalPages: Optional[int] = None
 
-class MarketDataError(BaseModel):
-    symbol: Optional[str] = None
-    message: str
-    provider: Optional[str] = None
-    errorCode: Optional[str] = None
+class MarketDataError(Exception): # Changed from BaseModel to Exception
+    def __init__(self, message: str, symbol: Optional[str] = None, provider: Optional[str] = None, errorCode: Optional[str] = None):
+        super().__init__(message)
+        self.message = message
+        self.symbol = symbol
+        self.provider = provider
+        self.errorCode = errorCode
+
+    def __str__(self):
+        return f"{self.provider or 'MarketData'} error (Code: {self.errorCode or 'N/A'}) for symbol '{self.symbol or 'N/A'}': {self.message}"
