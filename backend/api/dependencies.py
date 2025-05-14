@@ -71,6 +71,9 @@ class JWTPayload(BaseModel):
     namespaced_email: Optional[str] = Field(None, alias=f"{AUTH0_NAMESPACE}email")
     # Namespaced organization ID claim from Auth0
     namespaced_org_id: Optional[str] = Field(None, alias=f"{AUTH0_NAMESPACE}org_id")
+    # Standard name claims from Auth0
+    given_name: Optional[str] = None  # First name
+    family_name: Optional[str] = None  # Last name
 
 # --- JWKS Fetching Function ---
 async def get_jwks() -> Dict[str, Any]:
@@ -271,10 +274,18 @@ async def get_current_active_user(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User email could not be determined from token.")
         # --- End Get Email ---
 
-        # Get or create local user based on validated Auth0 sub and email
-        log.info(f"Calling user_service.get_or_create_user_by_auth0 with auth0_sub: {auth0_sub}, email: {email}")
+        # Extract first and last name from token claims
+        first_name = payload.given_name  # Extract first name
+        last_name = payload.family_name  # Extract last name
+
+        # Get or create local user based on validated Auth0 sub, email, and names
+        log.info(f"Calling user_service.get_or_create_user_by_auth0 with auth0_sub: {auth0_sub}, email: {email}, first_name: {first_name}, last_name: {last_name}")
         user = await user_service.get_or_create_user_by_auth0(
-            db=db, auth0_sub=auth0_sub, email=email
+            db=db,
+            auth0_sub=auth0_sub,
+            email=email,
+            first_name=first_name,  # Pass first name
+            last_name=last_name     # Pass last name
         ) # [cite: backend/services/user_service.py]
         log.info(f"User service returned user with ID: {user.id}")
 
@@ -325,7 +336,7 @@ async def require_club_admin(
             detail=f"User is not a member of club {club_id}."
         )
 
-    if membership.role != ClubRole.ADMIN: # [cite: backend_files/models/club_membership.py, backend_files/models/enums.py]
+    if membership.role != ClubRole.Admin: # [cite: backend_files/models/club_membership.py, backend_files/models/enums.py]
         log.warning(f"User {current_user.id} is not an ADMIN of club {club_id} (Role: {membership.role}).")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -353,7 +364,7 @@ async def require_club_member(
             detail=f"User is not authorized to access this club."
         )
     # Add check for specific roles if needed (e.g., MEMBER or ADMIN)
-    # if membership.role not in [ClubRole.ADMIN, ClubRole.MEMBER]: ...
+    # if membership.role not in [ClubRole.Admin, ClubRole.Member]: ...
     log.debug(f"User {current_user.id} confirmed as member of club {club_id}")
     return membership
 

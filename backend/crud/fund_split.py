@@ -30,13 +30,23 @@ async def create_fund_split(db: AsyncSession, *, fund_split_data: Dict[str, Any]
 
     db.add(db_obj)
     await db.flush()
-    await db.refresh(db_obj)
+    
+    # Eagerly load the fund relationship to prevent lazy loading errors during serialization
+    await db.refresh(db_obj, ["fund"])
+    
     return db_obj
 
 
 async def get_fund_split(db: AsyncSession, fund_split_id: uuid.UUID) -> FundSplit | None:
     """Gets a fund split by its ID."""
-    result = await db.execute(select(FundSplit).filter(FundSplit.id == fund_split_id))
+    # Use selectinload to eagerly load the fund relationship
+    from sqlalchemy.orm import selectinload
+    
+    result = await db.execute(
+        select(FundSplit)
+        .filter(FundSplit.id == fund_split_id)
+        .options(selectinload(FundSplit.fund))
+    )
     return result.unique().scalars().first() # Added unique()
 
 # Function to get splits by membership is no longer applicable
@@ -46,7 +56,14 @@ async def get_fund_splits_by_fund(
     db: AsyncSession, *, fund_id: uuid.UUID, club_id: uuid.UUID | None = None # Added optional club_id filter
 ) -> Sequence[FundSplit]:
     """Gets all fund splits associated with a given fund (optionally filtered by club)."""
-    stmt = select(FundSplit).filter(FundSplit.fund_id == fund_id)
+    # Use selectinload to eagerly load the fund relationship
+    from sqlalchemy.orm import selectinload
+    
+    stmt = (
+        select(FundSplit)
+        .filter(FundSplit.fund_id == fund_id)
+        .options(selectinload(FundSplit.fund))
+    )
     if club_id:
         stmt = stmt.filter(FundSplit.club_id == club_id)
     stmt = stmt.order_by(FundSplit.club_id) # Order by club
@@ -57,7 +74,14 @@ async def get_fund_splits_by_club( # New helper function might be useful
     db: AsyncSession, *, club_id: uuid.UUID
 ) -> Sequence[FundSplit]:
     """Gets all fund splits for a given club."""
-    stmt = select(FundSplit).filter(FundSplit.club_id == club_id).order_by(FundSplit.fund_id)
+    # Use selectinload to eagerly load the fund relationship
+    from sqlalchemy.orm import selectinload
+    stmt = (
+        select(FundSplit)
+        .filter(FundSplit.club_id == club_id)
+        .options(selectinload(FundSplit.fund))
+        .order_by(FundSplit.fund_id)
+    )
     result = await db.execute(stmt)
     return result.unique().scalars().all() # Added unique()
 
@@ -66,7 +90,10 @@ async def get_multi_fund_splits(
     db: AsyncSession, *, skip: int = 0, limit: int = 100, club_id: uuid.UUID | None = None, fund_id: uuid.UUID | None = None
 ) -> Sequence[FundSplit]:
     """Gets multiple fund splits with pagination and optional filtering."""
-    stmt = select(FundSplit)
+    # Use selectinload to eagerly load the fund relationship
+    from sqlalchemy.orm import selectinload
+    
+    stmt = select(FundSplit).options(selectinload(FundSplit.fund))
     # Removed membership_id filter
     if club_id:
         stmt = stmt.filter(FundSplit.club_id == club_id)

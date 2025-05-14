@@ -99,6 +99,11 @@ async def set_fund_splits_for_club(
             log.info(f"Created {len(created_splits)} new splits for club {club_id}.")
 
         await db.flush() # Flush changes
+        
+        # Eagerly load the fund relationship for each split to prevent lazy loading errors during serialization
+        for split in created_splits:
+            await db.refresh(split, ["fund"])
+            
         log.info(f"Successfully set fund splits for club {club_id}")
         return created_splits
 
@@ -120,8 +125,12 @@ async def get_fund_splits_for_club(
 ) -> Sequence[FundSplit]:
     """ Retrieves all fund splits for a given club. """
     log.debug(f"Retrieving fund splits for club {club_id}")
-    # CRUD function should handle eager loading if needed by schema
     splits = await crud_fund_split.get_fund_splits_by_club(db=db, club_id=club_id)
+    
+    # Eagerly load the fund relationship for each split to prevent lazy loading errors during serialization
+    for split in splits:
+        await db.refresh(split, ["fund"])
+        
     log.debug(f"Found {len(splits)} fund splits for club {club_id}")
     return splits
 

@@ -1,4 +1,3 @@
-
 // frontend/src/pages/ClubAccountingPage.tsx
 import React, { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
@@ -18,9 +17,9 @@ import {
   DialogTrigger,
   DialogClose
 } from '@/components/ui/dialog';
-// import { Skeleton } from '@/components/ui/skeleton';
-import { BookOpen, TrendingUp, Users, Receipt, Gift, RefreshCw, Download, Banknote, ArrowRightLeft } from 'lucide-react';
-// import { cn } from '@/lib/utils';
+import { BookOpen, TrendingUp, Users, Receipt, Gift, RefreshCw, Download, Banknote, ArrowRightLeft, Loader2 } from 'lucide-react';
+import { useAuth0 } from '@auth0/auth0-react';
+import { toast } from 'sonner';
 
 // Import Forms
 import RecordMemberTransactionForm from '@/components/forms/RecordMemberTransactionForm';
@@ -29,62 +28,58 @@ import LogClubExpenseForm from '@/components/forms/LogClubExpenseForm';
 import type { ClubExpenseFormData } from '@/components/forms/LogClubExpenseForm';
 import LogCashTransferForm from '@/components/forms/LogCashTransferForm';
 import type { CashTransferFormData } from '@/components/forms/LogCashTransferForm';
-import { CashTransferType, MemberTransactionType } from '@/enums';
+import { MemberTransactionType } from '@/enums';
 
-// --- Mock Data Structures & Generation (simplified, ensure alignment with previous definitions) ---
-interface UserSlim {
-  id: string;
-  email: string;
-  name: string; // For display in RecordMemberTransactionForm
+// --- Type Definitions ---
+// Using types and hooks from useApi.ts
+import {
+  useClubDetails,
+  useClubMembers,
+  useMemberTransactions,
+  useFundTransactions,
+  useClubFunds,
+  useRecordMemberDeposit,
+  useRecordMemberWithdrawal,
+  useRecordCashReceipt,
+  useRecordCashTransfer,
+  useRecordClubExpense
+} from '@/hooks/useApi';
+
+import type {
+  MemberTransaction,
+  Transaction,
+  ClubMembership,
+  Fund
+} from '@/lib/apiClient';
+
+// Local interface for combined ledger items
+// Extended Transaction type to handle both backend and frontend field names
+interface ExtendedTransaction extends Transaction {
+  total_amount?: number;
+  description?: string;
 }
-interface MemberTransaction { id: string; user: UserSlim; transaction_type: MemberTransactionType; transaction_date: string; amount: number; notes?: string; units_transacted?: number; unit_value_used?: number;}
-interface ClubLevelTransaction { id: string; transaction_date: string; transaction_type: 'CLUB_EXPENSE' | 'BANK_INTEREST' | CashTransferType; description: string; total_amount: number; fund_name?: string; fees_commissions?: number;}
-interface UnitValueHistory { id: string; valuation_date: string; total_club_value: number; total_units_outstanding: number; unit_value: number;}
-interface ClubAccountingPageData {
-  clubId: string; clubName: string; club_bank_account_balance: number;
-  latest_unit_value_record: UnitValueHistory | null;
-  member_transactions: MemberTransaction[];
-  club_level_transactions: ClubLevelTransaction[];
-  unit_value_history: UnitValueHistory[];
-  isAdmin: boolean;
-  membersForForm: UserSlim[]; // For member transaction form
-  fundsForForm: {id: string, name: string}[]; // For cash transfer form
-}
-type BankLedgerItem = ({ itemType: 'MemberTransaction' } & MemberTransaction) | ({ itemType: 'ClubLevelTransaction' } & ClubLevelTransaction);
 
-const MOCK_USERS_SLIM_ACC: UserSlim[] = [
-    { id: 'user1', email: 'alice@example.com', name: 'Alice W.' },
-    { id: 'user2', email: 'bob@example.com', name: 'Bob B.' },
-];
-const MOCK_FUNDS_SLIM_ACC: {id: string, name: string}[] = [
-    { id: 'fundA', name: 'US Equities Fund' }, { id: 'fundB', name: 'Global Growth Fund' }
-];
+type BankLedgerItem =
+  | ({ itemType: 'MemberTransaction' } & MemberTransaction)
+  | ({ itemType: 'ClubLevelTransaction' } & ExtendedTransaction);
 
-const MOCK_CLUB_ACCOUNTING_DATA_STORE: { current: ClubAccountingPageData } = {
-    current: {
-        clubId: 'club123',
-        clubName: 'Eagle Investors Club',
-        isAdmin: true,
-        club_bank_account_balance: 25034.78,
-        latest_unit_value_record: { id: 'uvh10', valuation_date: '2024-07-28', total_club_value: 125034.78, total_units_outstanding: 10000, unit_value: 12.503478 },
-        member_transactions: [
-            { id: 'mt1', user: MOCK_USERS_SLIM_ACC[0], transaction_type: MemberTransactionType.DEPOSIT, transaction_date: '2024-07-25', amount: 1000, notes: 'Initial contribution'},
-        ],
-        club_level_transactions: [
-            { id: 'clt1', transaction_date: '2024-07-28', transaction_type: 'CLUB_EXPENSE', description: 'Annual Accounting Software', total_amount: -75.00 },
-        ],
-        unit_value_history: [
-            { id: 'uvh10', valuation_date: '2024-07-28', total_club_value: 125034.78, total_units_outstanding: 10000, unit_value: 12.503478 },
-        ],
-        membersForForm: MOCK_USERS_SLIM_ACC,
-        fundsForForm: MOCK_FUNDS_SLIM_ACC,
-    }
-};
+// --- Helper Functions ---
+const formatCurrency = (value?: number | null, withSign=false) => 
+  value != null ? new Intl.NumberFormat('en-US', {
+    style:'currency', 
+    currency:'USD', 
+    signDisplay: withSign ? 'exceptZero' : 'auto'
+  }).format(value) : 'N/A';
 
-// --- Helper Functions (Simplified) ---
-const formatCurrency = (value?: number | null, withSign=false) => value != null ? new Intl.NumberFormat('en-US', {style:'currency', currency:'USD', signDisplay: withSign ? 'exceptZero' : 'auto'}).format(value) : 'N/A';
-const formatNumber = (value?: number | null, precision=2) => value != null ? value.toFixed(precision) : 'N/A';
-const formatDate = (dateString?: string) => dateString ? new Date(dateString).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : 'N/A';
+const formatNumber = (value?: number | null, precision=2) => 
+  value != null ? value.toFixed(precision) : 'N/A';
+
+const formatDate = (dateString?: string) => 
+  dateString ? new Date(dateString).toLocaleDateString('en-US', {
+    month:'short',
+    day:'numeric',
+    year:'numeric'
+  }) : 'N/A';
 
 // --- Log Bank Interest Dialog Form (simplified, as it's small and specific) ---
 interface LogBankInterestFormProps { onSave: (data: { date: string; amount: number; notes?: string }) => void; }
@@ -98,8 +93,8 @@ const LogBankInterestForm: React.FC<LogBankInterestFormProps> = ({ onSave }) => 
 
 // --- Main Component ---
 const ClubAccountingPage = () => {
-  const { clubId = "club123" } = useParams<{ clubId: string }>();
-  const [pageData, setPageData] = useState<ClubAccountingPageData | null>(MOCK_CLUB_ACCOUNTING_DATA_STORE.current);
+  const { clubId = "" } = useParams<{ clubId: string }>();
+  const { user } = useAuth0();
   
   // Dialog states
   const [showLogInterestDialog, setShowLogInterestDialog] = useState(false);
@@ -107,71 +102,273 @@ const ClubAccountingPage = () => {
   const [showLogExpenseDialog, setShowLogExpenseDialog] = useState(false);
   const [showLogCashTransferDialog, setShowLogCashTransferDialog] = useState(false);
 
-  const combinedLedgerItems = useMemo(() => { /* ... same as before ... */ 
-    if (!pageData) return [];
-    const items: BankLedgerItem[] = [
-      ...pageData.member_transactions.map(tx => ({ ...tx, itemType: 'MemberTransaction' as const })),
-      ...pageData.club_level_transactions.map(tx => ({ ...tx, itemType: 'ClubLevelTransaction' as const })),
-    ];
-    return items.sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
-  }, [pageData]);
+  // Fetch data using React Query hooks
+  const { data: clubData, isLoading: isLoadingClub } = useClubDetails(clubId);
+  const { data: members = [], isLoading: isLoadingMembers } = useClubMembers(clubId);
+  const { data: memberTransactions = [], isLoading: isLoadingMemberTx } = useMemberTransactions(clubId);
+  const { data: funds = [], isLoading: isLoadingFunds } = useClubFunds(clubId);
+  
+  // For now, we'll fetch all transactions across all funds
+  // In a more refined implementation, we might want to filter by transaction types
+  const { data: clubTransactions = [], isLoading: isLoadingTransactions } = 
+    useFundTransactions(clubId);
+  
+  // Mutation hooks
+  const { mutate: recordMemberDeposit } = useRecordMemberDeposit(clubId);
+  const { mutate: recordMemberWithdrawal } = useRecordMemberWithdrawal(clubId);
+  const { mutate: recordCashReceipt } = useRecordCashReceipt(clubId);
+  const { mutate: recordCashTransfer } = useRecordCashTransfer(clubId);
+  const { mutate: recordClubExpenseMutation } = useRecordClubExpense(clubId);
+  
+  // Determine if user is admin
+  const isAdmin = members?.some(member =>
+    member.user?.auth0_sub === user?.sub && member.role === 'Admin'
+  ) || false;
 
-  // Mock Handlers
-  const handleAddClubLevelTransaction = (newTxData: Omit<ClubLevelTransaction, 'id'>) => {
-    const newTx: ClubLevelTransaction = { ...newTxData, id: `clt${Math.random().toString(16).slice(2)}` };
-    setPageData(prev => prev ? ({ ...prev, club_level_transactions: [newTx, ...prev.club_level_transactions] }) : null);
-  };
-  const handleAddMemberTransaction = (newTxData: Omit<MemberTransaction, 'id' | 'user'> & {user_id: string}) => {
-    const user = MOCK_USERS_SLIM_ACC.find(u => u.id === newTxData.user_id) || MOCK_USERS_SLIM_ACC[0];
-    const newTx: MemberTransaction = { ...newTxData, id: `mt${Math.random().toString(16).slice(2)}`, user };
-    setPageData(prev => prev ? ({ ...prev, member_transactions: [newTx, ...prev.member_transactions] }) : null);
-  };
+  // Get latest unit value record - this would ideally come from an API endpoint
+  // For a new club, initialize with empty values
+  const latestUnitValueRecord = useMemo(() => {
+    // Check if this is a new club (no transactions)
+    const isNewClub = memberTransactions.length === 0 && clubTransactions.length === 0;
+    
+    if (isNewClub) {
+      return {
+        id: 'latest',
+        fund_id: '',
+        date: new Date().toISOString().split('T')[0],
+        unit_value: 0,
+        total_units: 0,
+        total_value: 0
+      };
+    } else {
+      // For existing clubs, use the mock data for now
+      // This would be replaced with actual API data in a future iteration
+      return {
+        id: 'latest',
+        fund_id: '',
+        date: new Date().toISOString().split('T')[0],
+        unit_value: 12.50,
+        total_units: 10000,
+        total_value: 125000
+      };
+    }
+  }, [memberTransactions, clubTransactions]);
+
+  // Bank balance now comes directly from the backend via clubData.bank_account_balance
+
+  // Prepare members for form
+  const membersForForm = useMemo(() => {
+    return members.map((member: ClubMembership) => ({
+      id: member.user_id,
+      name: member.user ? `${member.user.first_name} ${member.user.last_name}` : member.user_id,
+      email: member.user?.email || ''
+    }));
+  }, [members]);
+
+  // Prepare funds for form
+  const fundsForForm = useMemo(() => {
+    return funds.map((fund: Fund) => ({
+      id: fund.id,
+      name: fund.name
+    }));
+  }, [funds]);
+
+  // Combine member transactions and club transactions for the ledger
+  const combinedLedgerItems = useMemo(() => {
+    // Create a type-safe array of ledger items
+    const memberItems = memberTransactions.map((tx: MemberTransaction) => ({
+      ...tx,
+      itemType: 'MemberTransaction' as const
+    }));
+    
+    const transactionItems = clubTransactions
+      .filter((tx: Transaction) => ['ClubExpense', 'BankInterest', 'BankToBrokerage', 'BrokerageToBank']
+        .includes(tx.transaction_type))
+      .map((tx: Transaction) => ({
+        ...tx,
+        itemType: 'ClubLevelTransaction' as const
+      }));
+    
+    const items: BankLedgerItem[] = [...memberItems, ...transactionItems];
+    
+    return items.sort((a, b) => {
+      // Safely get dates for comparison
+      const dateA = a.itemType === 'MemberTransaction'
+        ? a.transaction_date || ''
+        : a.transaction_date || '';
+      
+      const dateB = b.itemType === 'MemberTransaction'
+        ? b.transaction_date || ''
+        : b.transaction_date || '';
+        
+      return new Date(dateB).getTime() - new Date(dateA).getTime();
+    }
+    );
+  }, [memberTransactions, clubTransactions]);
+
+  // Loading state
+  const isLoading = isLoadingClub || isLoadingMembers || isLoadingMemberTx || 
+                   isLoadingFunds || isLoadingTransactions;
 
   const handleLogBankInterestSubmit = async (data: { date: string; amount: number; notes?: string }) => {
     console.log('Log Bank Interest Submitted:', data);
-    handleAddClubLevelTransaction({transaction_date: data.date, transaction_type: 'BANK_INTEREST', description: data.notes || 'Bank Interest', total_amount: data.amount});
-    setShowLogInterestDialog(false);
+    
+    // Use the first fund for bank interest or create a specific endpoint
+    if (funds.length > 0) {
+      recordCashReceipt({
+        fund_id: funds[0].id,
+        transaction_type: 'BankInterest',
+        transaction_date: data.date,
+        amount: data.amount,
+        notes: data.notes
+      }, {
+        onSuccess: () => {
+          toast.success('Bank interest recorded successfully');
+          setShowLogInterestDialog(false);
+        },
+        onError: (error: unknown) => {
+          console.error('Error recording bank interest:', error);
+          toast.error('Failed to record bank interest');
+        }
+      });
+    } else {
+      toast.error('No funds available to record bank interest');
+    }
   };
 
   const handleRecordMemberTxSubmit = async (data: MemberTransactionFormData) => {
     console.log('Member Transaction Submitted:', data);
-    handleAddMemberTransaction(data);
-    setShowRecordMemberTxDialog(false);
+    
+    if (data.transaction_type === MemberTransactionType.DEPOSIT) {
+      recordMemberDeposit({
+        user_id: data.user_id,
+        amount: data.amount,
+        transaction_date: data.transaction_date,
+        notes: data.notes
+      }, {
+        onSuccess: () => {
+          toast.success('Member deposit recorded successfully');
+          setShowRecordMemberTxDialog(false);
+        },
+        onError: (error: unknown) => {
+          console.error('Error recording member deposit:', error);
+          toast.error('Failed to record member deposit');
+        }
+      });
+    } else {
+      recordMemberWithdrawal({
+        user_id: data.user_id,
+        amount: data.amount,
+        transaction_date: data.transaction_date,
+        notes: data.notes
+      }, {
+        onSuccess: () => {
+          toast.success('Member withdrawal recorded successfully');
+          setShowRecordMemberTxDialog(false);
+        },
+        onError: (error: unknown) => {
+          console.error('Error recording member withdrawal:', error);
+          toast.error('Failed to record member withdrawal');
+        }
+      });
+    }
   };
 
   const handleLogExpenseSubmit = async (data: ClubExpenseFormData) => {
     console.log('Club Expense Submitted:', data);
-    handleAddClubLevelTransaction({transaction_date: data.transaction_date, transaction_type: 'CLUB_EXPENSE', description: data.description, total_amount: -Math.abs(data.total_amount), fees_commissions: data.fees_commissions});
-    setShowLogExpenseDialog(false);
-  };
-  
-  const handleLogCashTransferSubmit = async (data: CashTransferFormData) => {
-    console.log('Cash Transfer Submitted:', data);
-    // This might create one or two ClubLevelTransactions depending on type
-    // Example: BANK_TO_BROKERAGE reduces bank balance
-    if (pageData) {
-      handleAddClubLevelTransaction({
-        transaction_date: data.transaction_date,
-        transaction_type: data.transaction_type,
-        description: data.description || 'Cash Transfer',
-        total_amount: (data.transaction_type === CashTransferType.BROKERAGE_TO_BANK ? 1 : -1) * data.total_amount,
-        fund_name: data.fund_id ? pageData.fundsForForm.find(f=>f.id === data.fund_id)?.name : undefined
-      });
-    }
-    setShowLogCashTransferDialog(false);
+    
+    recordClubExpenseMutation({
+      transaction_type: 'ClubExpense',
+      transaction_date: data.transaction_date,
+      total_amount: data.total_amount, // Pass the positive value as entered by the user
+      description: data.description,
+      fees_commissions: data.fees_commissions
+    }, {
+      onSuccess: () => {
+        toast.success('Club expense recorded successfully');
+        setShowLogExpenseDialog(false);
+      },
+      onError: (error: unknown) => {
+        console.error('Error recording club expense:', error);
+        toast.error('Failed to record club expense');
+      }
+    });
   };
 
-  if (!pageData) return <div>Loading or error...</div>; // Simplified loading/error
-  const { club_bank_account_balance, latest_unit_value_record, unit_value_history, isAdmin, membersForForm, fundsForForm } = pageData;
+  const handleLogCashTransferSubmit = async (data: CashTransferFormData) => {
+    console.log('Cash Transfer Submitted:', data);
+    
+    recordCashTransfer({
+      transaction_type: data.transaction_type,
+      transaction_date: data.transaction_date,
+      total_amount: data.total_amount, // Using 'total_amount' to match updated API interface
+      fund_id: data.fund_id,
+      target_fund_id: data.target_fund_id, // Add target_fund_id for INTERFUND transfers
+      notes: data.description
+    }, {
+      onSuccess: () => {
+        toast.success('Cash transfer recorded successfully');
+        setShowLogCashTransferDialog(false);
+      },
+      onError: (error: unknown) => {
+        console.error('Error recording cash transfer:', error);
+        toast.error('Failed to record cash transfer');
+      }
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-slate-600">Loading accounting data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
       <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Club Accounting & Banking</h1>
       {/* Section 1: Key Club Financials - unchanged */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Card className="bg-white border-slate-200/75 shadow-sm"><CardHeader className="pb-1.5"><CardTitle className="text-[0.7rem] font-medium text-slate-500 uppercase tracking-wider flex justify-between items-center">Club Bank Balance <Banknote className="h-4 w-4 text-slate-400" /></CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{formatCurrency(club_bank_account_balance)}</div></CardContent></Card>
-        <Card className="bg-white border-slate-200/75 shadow-sm"><CardHeader className="pb-1.5"><CardTitle className="text-[0.7rem] font-medium text-slate-500 uppercase tracking-wider flex justify-between items-center">Latest Unit Value <TrendingUp className="h-4 w-4 text-slate-400" /></CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{formatCurrency(latest_unit_value_record?.unit_value, true)?.substring(0,10)}</div><p className="text-xs text-slate-500">As of {formatDate(latest_unit_value_record?.valuation_date)}</p></CardContent></Card>
-        <Card className="bg-white border-slate-200/75 shadow-sm"><CardHeader className="pb-1.5"><CardTitle className="text-[0.7rem] font-medium text-slate-500 uppercase tracking-wider flex justify-between items-center">Total Units <BookOpen className="h-4 w-4 text-slate-400" /></CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{formatNumber(latest_unit_value_record?.total_units_outstanding)}</div><p className="text-xs text-slate-500">As of {formatDate(latest_unit_value_record?.valuation_date)}</p></CardContent></Card>
+        <Card className="bg-white border-slate-200/75 shadow-sm">
+          <CardHeader className="pb-1.5">
+            <CardTitle className="text-[0.7rem] font-medium text-slate-500 uppercase tracking-wider flex justify-between items-center">
+              Club Bank Balance <Banknote className="h-4 w-4 text-slate-400" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-slate-900">{formatCurrency(clubData?.bank_account_balance)}</div>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-white border-slate-200/75 shadow-sm">
+          <CardHeader className="pb-1.5">
+            <CardTitle className="text-[0.7rem] font-medium text-slate-500 uppercase tracking-wider flex justify-between items-center">
+              Latest Unit Value <TrendingUp className="h-4 w-4 text-slate-400" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-slate-900">
+              {formatCurrency(latestUnitValueRecord?.unit_value, true)?.substring(0,10)}
+            </div>
+            <p className="text-xs text-slate-500">As of {formatDate(latestUnitValueRecord?.date)}</p>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-white border-slate-200/75 shadow-sm">
+          <CardHeader className="pb-1.5">
+            <CardTitle className="text-[0.7rem] font-medium text-slate-500 uppercase tracking-wider flex justify-between items-center">
+              Total Units <BookOpen className="h-4 w-4 text-slate-400" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-slate-900">{formatNumber(latestUnitValueRecord?.total_units)}</div>
+            <p className="text-xs text-slate-500">As of {formatDate(latestUnitValueRecord?.date)}</p>
+          </CardContent>
+        </Card>
       </div>
 
       <Tabs defaultValue="bank_ledger" className="w-full">
@@ -192,7 +389,16 @@ const ClubAccountingPage = () => {
                   {/* Record Member D/W Dialog Trigger */}
                   <Dialog open={showRecordMemberTxDialog} onOpenChange={setShowRecordMemberTxDialog}>
                     <DialogTrigger asChild><Button variant="outline" className="bg-white text-sm w-full justify-start"><Users className="mr-2 h-4 w-4 text-blue-600"/>Record Member D/W</Button></DialogTrigger>
-                    <DialogContent className="sm:max-w-lg bg-white p-6"><RecordMemberTransactionForm clubId={clubId} members={membersForForm} latestUnitValue={latest_unit_value_record?.unit_value} latestValuationDate={latest_unit_value_record?.valuation_date} onSubmit={handleRecordMemberTxSubmit} onCancel={()=>setShowRecordMemberTxDialog(false)}/></DialogContent>
+                    <DialogContent className="sm:max-w-lg bg-white p-6">
+                      <RecordMemberTransactionForm 
+                        clubId={clubId} 
+                        members={membersForForm} 
+                        latestUnitValue={latestUnitValueRecord?.unit_value} 
+                        latestValuationDate={latestUnitValueRecord?.date} 
+                        onSubmit={handleRecordMemberTxSubmit} 
+                        onCancel={()=>setShowRecordMemberTxDialog(false)}
+                      />
+                    </DialogContent>
                   </Dialog>
                   {/* Log Club Expense Dialog Trigger */}
                   <Dialog open={showLogExpenseDialog} onOpenChange={setShowLogExpenseDialog}>
@@ -207,7 +413,14 @@ const ClubAccountingPage = () => {
                   {/* Log Cash Transfer Dialog Trigger */}
                   <Dialog open={showLogCashTransferDialog} onOpenChange={setShowLogCashTransferDialog}>
                     <DialogTrigger asChild><Button variant="outline" className="bg-white text-sm w-full justify-start"><ArrowRightLeft className="mr-2 h-4 w-4 text-blue-600"/>Transfer Cash</Button></DialogTrigger>
-                    <DialogContent className="sm:max-w-xl bg-white p-6"><LogCashTransferForm clubId={clubId} funds={fundsForForm} onSubmit={handleLogCashTransferSubmit} onCancel={()=>setShowLogCashTransferDialog(false)} /></DialogContent>
+                    <DialogContent className="sm:max-w-xl bg-white p-6">
+                      <LogCashTransferForm 
+                        clubId={clubId} 
+                        funds={fundsForForm} 
+                        onSubmit={handleLogCashTransferSubmit} 
+                        onCancel={()=>setShowLogCashTransferDialog(false)} 
+                      />
+                    </DialogContent>
                   </Dialog>
                 </div>
               )}
@@ -222,12 +435,42 @@ const ClubAccountingPage = () => {
                       let description, debited, credited, typeLabel;
                       if (item.itemType === 'MemberTransaction') {
                         typeLabel = item.transaction_type === MemberTransactionType.DEPOSIT ? 'Deposit' : 'Withdrawal';
-                        description = `${item.user.email}`;
-                        if(item.transaction_type === 'DEPOSIT') credited = item.amount; else debited = item.amount;
+                        // MemberTransaction might not have user property directly accessible
+                        description = 'Member Transaction';
+                        if(item.transaction_type === MemberTransactionType.DEPOSIT) {
+                          credited = item.amount;
+                        } else {
+                          debited = item.amount;
+                        }
                       } else { 
                         typeLabel = item.transaction_type.replace(/_/g, ' ');
-                        description = item.description;
-                        if(item.total_amount < 0) debited = Math.abs(item.total_amount); else credited = item.total_amount;
+                        description = item.description || item.notes || 'Cash Transaction';
+                        // Handle both amount and total_amount fields for compatibility
+                        const transactionAmount = item.total_amount !== undefined ? item.total_amount : item.amount;
+                        
+                        // BankToBrokerage should always be a debit (money leaving bank account)
+                        if(item.transaction_type === 'BankToBrokerage') {
+                          debited = Math.abs(transactionAmount);
+                          credited = undefined; // Ensure it's not also credited
+                        }
+                        // BrokerageToBank should always be a credit (money entering bank account)
+                        else if(item.transaction_type === 'BrokerageToBank') {
+                          credited = Math.abs(transactionAmount);
+                          debited = undefined; // Ensure it's not also debited
+                        }
+                        // ClubExpense should always be a debit
+                        else if(item.transaction_type === 'ClubExpense') {
+                          debited = Math.abs(transactionAmount);
+                          credited = undefined; // Ensure it's not also credited
+                        }
+                        // For other transaction types, use the sign of the amount
+                        else if(transactionAmount < 0) {
+                          debited = Math.abs(transactionAmount);
+                          credited = undefined; // Ensure it's not also credited
+                        } else {
+                          credited = transactionAmount;
+                          debited = undefined; // Ensure it's not also debited
+                        }
                       }
                       return (
                         <TableRow key={`${item.itemType}-${item.id}`} className="hover:bg-slate-50/50 text-sm">
@@ -248,7 +491,51 @@ const ClubAccountingPage = () => {
 
         <TabsContent value="unit_value_history" className="mt-4">
           {/* ... Unit Value History Table ... unchanged */}
-            <Card className="bg-white border-slate-200/75 shadow-sm"><CardHeader><div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3"><div><CardTitle className="text-lg font-medium text-slate-800">Club Unit Value History</CardTitle><CardDescription className="text-sm text-slate-600">Historical record of the club's unit valuations.</CardDescription></div><div className="flex gap-2">{isAdmin && <Button variant="outline" size="sm" className="bg-white"><RefreshCw className="mr-2 h-4 w-4"/> Recalculate Unit Value</Button>}<Button variant="outline" size="sm" className="bg-white"><Download className="mr-2 h-4 w-4"/> Export History</Button></div></div></CardHeader><CardContent className="p-0">{unit_value_history.length > 0 ? (<Table><TableHeader><TableRow className="hover:bg-transparent"><TableHead>Valuation Date</TableHead><TableHead className="text-right">Total Club Value</TableHead><TableHead className="text-right">Total Units</TableHead><TableHead className="text-right">Calculated Unit Value</TableHead></TableRow></TableHeader><TableBody>{unit_value_history.map(uv => (<TableRow key={uv.id} className="hover:bg-slate-50/50 text-sm"><TableCell className="font-medium text-slate-700">{formatDate(uv.valuation_date)}</TableCell><TableCell className="text-right text-slate-600">{formatCurrency(uv.total_club_value)}</TableCell><TableCell className="text-right text-slate-600">{formatNumber(uv.total_units_outstanding, 4)}</TableCell><TableCell className="text-right font-semibold text-slate-800">{formatCurrency(uv.unit_value, true)?.substring(0,12)}</TableCell></TableRow>))}</TableBody></Table>) : (<p className="text-center py-6 text-slate-500">No unit value history available.</p>)}</CardContent></Card>
+            <Card className="bg-white border-slate-200/75 shadow-sm">
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                  <div>
+                    <CardTitle className="text-lg font-medium text-slate-800">Club Unit Value History</CardTitle>
+                    <CardDescription className="text-sm text-slate-600">Historical record of the club's unit valuations.</CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    {isAdmin && (
+                      <Button variant="outline" size="sm" className="bg-white">
+                        <RefreshCw className="mr-2 h-4 w-4"/> Recalculate Unit Value
+                      </Button>
+                    )}
+                    <Button variant="outline" size="sm" className="bg-white">
+                      <Download className="mr-2 h-4 w-4"/> Export History
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                {/* For now, we'll just show the latest unit value since we don't have a history endpoint */}
+                {latestUnitValueRecord ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead>Valuation Date</TableHead>
+                        <TableHead className="text-right">Total Club Value</TableHead>
+                        <TableHead className="text-right">Total Units</TableHead>
+                        <TableHead className="text-right">Calculated Unit Value</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow className="hover:bg-slate-50/50 text-sm">
+                        <TableCell className="font-medium text-slate-700">{formatDate(latestUnitValueRecord.date)}</TableCell>
+                        <TableCell className="text-right text-slate-600">{formatCurrency(latestUnitValueRecord.total_value)}</TableCell>
+                        <TableCell className="text-right text-slate-600">{formatNumber(latestUnitValueRecord.total_units, 4)}</TableCell>
+                        <TableCell className="text-right font-semibold text-slate-800">{formatCurrency(latestUnitValueRecord.unit_value, true)?.substring(0,12)}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <p className="text-center py-6 text-slate-500">No unit value history available.</p>
+                )}
+              </CardContent>
+            </Card>
         </TabsContent>
       </Tabs>
 

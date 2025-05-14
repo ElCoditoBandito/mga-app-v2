@@ -19,7 +19,7 @@ interface FundSlim {
 // Based on TransactionCreateCashTransfer
 export interface CashTransferFormData {
   club_id: string;
-  transaction_type: CashTransferType;
+  transaction_type: string; // Changed from CashTransferType to string to match backend expectations
   transaction_date: string; // ISO format
   total_amount: number;     // Positive decimal
   fund_id?: string;         // Source fund for BROKERAGE_TO_BANK or INTERFUND_CASH_TRANSFER (source)
@@ -67,7 +67,7 @@ const LogCashTransferForm: React.FC<LogCashTransferFormProps> = ({
 
     const formData: CashTransferFormData = {
       club_id: clubId,
-      transaction_type: transactionType,
+      transaction_type: transactionType, // No mapping needed now as enum values match backend
       transaction_date: transactionDate,
       total_amount: numTotalAmount,
       description: description.trim() || undefined,

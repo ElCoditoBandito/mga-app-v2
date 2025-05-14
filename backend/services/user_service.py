@@ -2,7 +2,7 @@
 
 import uuid
 import logging # Import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 # Assuming SQLAlchemy and FastAPI are installed in the environment
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 
 async def get_or_create_user_by_auth0(
-    db: AsyncSession, *, auth0_sub: str, email: str
+    db: AsyncSession, *, auth0_sub: str, email: str, first_name: Optional[str] = None, last_name: Optional[str] = None
 ) -> User:
     """
     Retrieves a user by their Auth0 subject ID, creating them if they don't exist.
@@ -30,6 +30,8 @@ async def get_or_create_user_by_auth0(
         db: The AsyncSession instance.
         auth0_sub: The unique subject identifier from Auth0.
         email: The user's email address (from Auth0 token).
+        first_name: The user's first name (from Auth0 token's given_name claim).
+        last_name: The user's last name (from Auth0 token's family_name claim).
 
     Returns:
         The existing or newly created User model instance.
@@ -51,6 +53,8 @@ async def get_or_create_user_by_auth0(
         user_data = {
             "auth0_sub": auth0_sub,
             "email": email,
+            "first_name": first_name,
+            "last_name": last_name,
             # is_active defaults to True in CRUD/model [cite: backend_files/crud/user.py, backend_files/models/user.py]
         }
         try:

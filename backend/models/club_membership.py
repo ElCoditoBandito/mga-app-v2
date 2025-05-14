@@ -13,7 +13,7 @@ class ClubMembership(IdMixin, TimestampMixin, TableNameMixin, Base):
 
     user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False, index=True) # Added index
     club_id = Column(UUID(as_uuid=True), ForeignKey('clubs.id'), nullable=False, index=True) # Added index
-    role = Column(SQLEnum(ClubRole, name="club_role_enum", create_type=True, native_enum=True), nullable=False, default=ClubRole.MEMBER) # Keep enum fixes
+    role = Column(SQLEnum(ClubRole, name="club_role_enum", create_type=True, native_enum=True), nullable=False, default=ClubRole.Member) # Keep enum fixes
 
     # Relationships
     user = relationship("User", back_populates="memberships")

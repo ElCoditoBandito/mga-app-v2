@@ -20,4 +20,4 @@ class Fund(IdMixin, TimestampMixin, TableNameMixin, Base):
     club = relationship("Club", back_populates="funds")
     positions = relationship("Position", back_populates="fund", cascade="all, delete-orphan")
     transactions = relationship("Transaction", back_populates="fund", cascade="all, delete-orphan") # All transactions related to this fund
-    # fund_split = relationship("FundSplit", back_populates="fund", uselist=False) # A fund can have one split setting
+    fund_split = relationship("FundSplit", back_populates="fund", uselist=False) # A fund can have one split setting

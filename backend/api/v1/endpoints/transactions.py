@@ -17,6 +17,7 @@ from backend.schemas import (
     TransactionRead, TransactionCreateTrade,
     TransactionCreateDividendBrokerageInterest,
     TransactionCreateCashTransfer, TransactionCreateOptionLifecycle,
+    TransactionCreateClubExpense,
     TransactionReadBasic # Added Basic Read
 )
 from backend.services import transaction_service
@@ -97,6 +98,49 @@ async def record_option_lifecycle(club_id: uuid.UUID = Path(...), lifecycle_data
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while recording the option lifecycle event.")
 
 
+@router.post(
+    "/club-expense",
+    response_model=TransactionRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Record Club Expense",
+    dependencies=[Depends(require_club_admin)],
+)
+async def create_club_expense(
+    club_id: uuid.UUID = Path(...),
+    expense_data: TransactionCreateClubExpense = Body(...),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_active_user),
+) -> TransactionRead:
+    """
+    Record a club expense transaction.
+    
+    Args:
+        club_id: ID of the club
+        expense_data: Club expense data
+        db: Database session
+        current_user: Current authenticated user
+        
+    Returns:
+        Created transaction
+    """
+    log.info(f"Recording club expense for club {club_id} by user {current_user.id}")
+    try:
+        transaction = await transaction_service.process_club_expense_transaction(
+            db=db, expense_in=expense_data, club_id=club_id
+        )
+        log.info(f"Successfully recorded club expense transaction {transaction.id}")
+        return transaction
+    except HTTPException as e:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        log.exception(f"Error recording club expense: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error recording club expense: {str(e)}",
+        )
+
+
 @router.get("", response_model=List[TransactionRead], summary="List Fund Transactions", description="Retrieves a list of fund-level transactions...", dependencies=[Depends(require_club_member)])
 async def list_fund_transactions(club_id: uuid.UUID = Path(...), fund_id: uuid.UUID = Query(None), asset_id: uuid.UUID = Query(None), skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500), db: AsyncSession = Depends(get_db_session)):
     log.info(f"Received request to list transactions for club {club_id} with filters - fund_id: {fund_id}, asset_id: {asset_id}")
@@ -125,8 +169,8 @@ async def get_single_transaction(club_id: uuid.UUID = Path(...), transaction_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Transaction {transaction_id} not found.")
 
     # Authorization Check: Ensure the transaction belongs to the correct club
-    # The get_transaction CRUD now loads the fund relationship
-    if not transaction.fund or transaction.fund.club_id != club_id:
+    # Direct check using club_id on transaction
+    if transaction.club_id != club_id:
         log.error(f"Mismatch: Transaction {transaction_id} does not belong to club {club_id}.")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Transaction {transaction_id} not found in this club.")
 

@@ -12,6 +12,6 @@ api_router = APIRouter()
 api_router.include_router(users.router, prefix="/users", tags=["Users"])
 api_router.include_router(clubs.router, prefix="/clubs", tags=["Clubs"])
 api_router.include_router(assets.router, prefix="/assets", tags=["Assets"])
-api_router.include_router(transactions.router, prefix="/transactions", tags=["Transactions"])
+api_router.include_router(transactions.router, prefix="/clubs/{club_id}/transactions", tags=["Transactions"])
 # Include other routers here (e.g., transactions, members if separated)
 

@@ -43,6 +43,7 @@ class ClubUpdate(BaseModel):
 
 class ClubReadBasic(ClubBase):
     id: uuid.UUID
+    current_user_role: Optional[ClubRole] = Field(None, description="The role of the current user in this club")
     model_config = orm_config
 
 class ClubRead(ClubBase):
@@ -61,12 +62,12 @@ class ClubRead(ClubBase):
 class ClubMembershipBase(BaseModel):
     user_id: uuid.UUID
     club_id: uuid.UUID
-    role: ClubRole = ClubRole.MEMBER
+    role: ClubRole = ClubRole.Member
 
 class ClubMembershipCreate(BaseModel):
     user_id: uuid.UUID
     club_id: uuid.UUID
-    role: ClubRole = ClubRole.MEMBER
+    role: ClubRole = ClubRole.Member
 
 class ClubMembershipUpdate(BaseModel):
     role: Optional[ClubRole] = None

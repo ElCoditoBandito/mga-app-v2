@@ -9,10 +9,11 @@ from .enums import TransactionType
 
 class Transaction(IdMixin, TimestampMixin, TableNameMixin, Base):
     __tablename__ = 'transactions'
-
+    
+    club_id = Column(UUID(as_uuid=True), ForeignKey('clubs.id'), nullable=False, index=True)
     fund_id = Column(UUID(as_uuid=True), ForeignKey('funds.id'), nullable=True) # Can be null for club-level tx
     asset_id = Column(UUID(as_uuid=True), ForeignKey('assets.id'), nullable=True) # Null for cash-only tx
-
+    
     transaction_type = Column(SQLEnum(TransactionType, name="transaction_type_enum", create_type=True, native_enum=True), nullable=False, index=True)
     transaction_date = Column(DateTime(timezone=True), nullable=False, index=True) # Effective date/time of the transaction
 
@@ -32,6 +33,7 @@ class Transaction(IdMixin, TimestampMixin, TableNameMixin, Base):
     reverses_transaction_id = Column(UUID(as_uuid=True), ForeignKey('transactions.id'), nullable=True, index=True) # Link to the transaction being reversed
 
     # Relationships
+    club = relationship("Club", back_populates="transactions")
     fund = relationship("Fund", back_populates="transactions")
     asset = relationship("Asset", back_populates="transactions")
 

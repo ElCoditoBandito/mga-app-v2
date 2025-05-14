@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 class TransactionBase(BaseModel):
     """ Base schema for reading transaction data """
+    club_id: uuid.UUID  # Required for all transactions
     # fund_id is Optional as defined in original
     fund_id: Optional[uuid.UUID] = None # Nullable for club-level transactions
     asset_id: Optional[uuid.UUID] = None # Nullable for cash-only transactions
@@ -124,7 +125,7 @@ class TransactionBase(BaseModel):
 
 class TransactionCreateBase(BaseModel):
     """ Base schema for creating transactions - common fields """
-    # **FIX:** Add fund_id here, make it optional in base, specific types might require it via validators
+    club_id: Optional[uuid.UUID] = None  # Can be provided via URL path for some endpoints
     fund_id: Optional[uuid.UUID] = None
     asset_id: Optional[uuid.UUID] = None # Optional here, specific types can require it
     transaction_type: TransactionType
@@ -184,7 +185,9 @@ class TransactionCreateClubExpense(TransactionCreateBase):
     # fund_id must be null (checked by base validator)
     # asset_id must be null (checked by base validator)
     transaction_type: Literal[TransactionType.CLUB_EXPENSE] = Field(TransactionType.CLUB_EXPENSE)
-    total_amount: Decimal = Field(..., gt=Decimal(0), max_digits=15, decimal_places=2) # Amount of the expense
+    total_amount: Decimal = Field(..., gt=Decimal(0), max_digits=15, decimal_places=2, description="The total amount of the expense, should be positive.")
+    description: str = Field(..., min_length=1, max_length=255)
+    fees_commissions: Optional[Decimal] = Field(None, ge=Decimal(0), description="Optional fees associated with the expense.")
 
 
 class TransactionCreateCashTransfer(TransactionCreateBase):
@@ -281,6 +284,8 @@ class TransactionRead(TransactionBase):
     # Optionally include nested representations of related objects
     asset: Optional['AssetReadBasic'] = None # Example using TYPE_CHECKING block above
     fund: Optional['FundReadBasic'] = None # Example using TYPE_CHECKING block above
+    # We don't include club here to avoid circular imports
+    # club: Optional['ClubReadBasic'] = None
     # related_transaction: Optional['TransactionReadBasic'] = None # Requires model_rebuild if uncommented
     # reversed_by_transaction: Optional['TransactionReadBasic'] = None # Requires model_rebuild if uncommented
 

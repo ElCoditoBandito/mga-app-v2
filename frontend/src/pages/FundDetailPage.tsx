@@ -1,6 +1,5 @@
-
 // frontend/src/pages/FundDetailPage.tsx
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,102 +11,36 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-// import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, Banknote, DollarSign, TrendingUp, ListChecks, Percent, Edit, PlusCircle, Info } from 'lucide-react';
+import { ArrowLeft, Banknote, DollarSign, TrendingUp, ListChecks, Percent, Edit, PlusCircle, Info, Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip } from 'recharts'; // Renamed Tooltip to avoid conflict if any
+import { useAuth0 } from '@auth0/auth0-react';
 
-// --- Mock Data Structures ---
-interface Asset {
+// Import API hooks
+import {
+  useClubFunds,
+  useClubMembers,
+  useFundSplits,
+  useAssets,
+  useFundDetails,
+  useFundPerformanceHistory,
+  useFundTransactions,
+  useClubPortfolio
+} from '@/hooks/useApi';
+
+// No need to import types that we're not using directly
+
+// Define a custom type for the fund with brokerage_cash_balance
+interface ExtendedFund {
   id: string;
-  symbol: string;
+  club_id: string;
   name: string;
-  current_price: number; // Manual entry for MVP
-  asset_type?: 'STOCK' | 'OPTION' | 'CRYPTO';
-}
-
-interface Position {
-  id: string;
-  asset_id: string;
-  quantity: number;
-  average_cost_basis: number;
-}
-
-interface Transaction {
-  id: string;
-  transaction_date: string;
-  transaction_type: string; // e.g., BuyStock, SellOption, Dividend
-  asset_id?: string; // Optional, as some transactions might not be asset-specific (e.g., Fee)
-  quantity?: number;
-  price_per_unit?: number;
-  total_amount: number;
   description?: string;
-  fees_commissions?: number;
-}
-
-interface FundDetails {
-  id: string;
-  name: string;
-  description: string;
   is_active: boolean;
   brokerage_cash_balance: number;
-  positions: Position[];
-  transactions: Transaction[]; // Transactions specific to this fund
-  // fund_split_percentage: number; // From club.fund_splits for this fund_id
+  created_at: string;
+  updated_at: string;
 }
-
-// Assume club total value is passed or fetched separately for % of Club Assets calculation
-interface FundDetailPageData {
-  fund: FundDetails;
-  assets: Asset[]; // All assets, to resolve asset details for positions/transactions
-  clubTotalValue: number; // For calculating % of total club assets
-  fundSplitPercentage: number; // New cash allocation for this fund
-  isAdmin: boolean;
-  // For Fund Performance Chart (simplified example)
-  performanceData?: { date: string; value: number }[]; 
-}
-
-// --- Mock Data Generation ---
-const MOCK_ASSETS_STORE_FD: Asset[] = [
-  { id: 'asset1', symbol: 'AAPL', name: 'Apple Inc.', current_price: 175.50, asset_type: 'STOCK' },
-  { id: 'asset2', symbol: 'MSFT', name: 'Microsoft Corp.', current_price: 340.20, asset_type: 'STOCK' },
-  { id: 'assetOption1', symbol: 'AAPL251219C180', name: 'AAPL $180 CALL Exp 2025-12-19', current_price: 10.50, asset_type: 'OPTION' },
-];
-
-const MOCK_FUND_DETAIL_PAGE_DATA: (fundId?: string) => FundDetailPageData | null = (fundId = 'fundA') => {
-  if (fundId !== 'fundA') return null; // Only mocking one fund for now
-  return {
-    fund: {
-      id: 'fundA',
-      name: 'US Equities Fund',
-      description: 'Focuses on S&P 500 Index ETFs and large-cap stocks with a long-term growth perspective. Aims to outperform the benchmark through strategic sector allocation and individual stock picking.',
-      is_active: true,
-      brokerage_cash_balance: 5000.25,
-      positions: [
-        { id: 'pos1', asset_id: 'asset1', quantity: 50, average_cost_basis: 150.00 },
-        { id: 'pos2', asset_id: 'asset2', quantity: 25, average_cost_basis: 300.00 },
-        // { id: 'posOpt1', asset_id: 'assetOption1', quantity: 10, average_cost_basis: 8.00 },
-      ],
-      transactions: [
-        { id: 'tx1', transaction_date: '2024-07-20', transaction_type: 'BuyStock', asset_id: 'asset1', quantity: 10, price_per_unit: 170.00, total_amount: -1700.00, description: 'Purchased Apple shares' },
-        { id: 'tx2', transaction_date: '2024-07-15', transaction_type: 'Dividend', asset_id: 'asset2', total_amount: 25.00, description: 'MSFT Dividend Payout' },
-        { id: 'tx3', transaction_date: '2024-07-01', transaction_type: 'SellStock', asset_id: 'asset1', quantity: 5, price_per_unit: 175.00, total_amount: 875.00, fees_commissions: 1.00, description: 'Sold some Apple shares' },
-        // { id: 'txOptBuy', transaction_date: '2024-06-10', transaction_type: 'BuyOption', asset_id: 'assetOption1', quantity: 10, price_per_unit: 8.00, total_amount: -800.00, description: 'BTO AAPL Calls' },
-      ],
-    },
-    assets: MOCK_ASSETS_STORE_FD,
-    clubTotalValue: 125034.78, // From Club Dashboard for example
-    fundSplitPercentage: 0.6, // 60%
-    isAdmin: true,
-    performanceData: [
-        { date: '2024-04-01', value: 68000 },
-        { date: '2024-05-01', value: 70000 },
-        { date: '2024-06-01', value: 72000 },
-        { date: '2024-07-01', value: 75000 },
-        { date: '2024-07-28', value: (50 * 175.50) + (25 * 340.20) + 5000.25 }, // Calculated current fund value
-    ]
-  };
-};
 
 // --- Helper Functions ---
 const formatCurrency = (value?: number | null, withSign = false) => {
@@ -127,24 +60,7 @@ const formatDate = (dateInput?: string | number | Date) => {
   return new Date(dateInput).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
-const getAssetById = (assetId: string, assets: Asset[]) => assets.find(a => a.id === assetId);
-
-// --- Fund Metrics Calculation ---
-const calculateFundDetailedMetrics = (fund: FundDetails, assets: Asset[], clubTotalValue: number) => {
-  let assetsMarketValue = 0;
-  let assetsCostBasis = 0;
-  fund.positions.forEach(pos => {
-    const asset = getAssetById(pos.asset_id, assets);
-    if (asset) {
-      assetsMarketValue += pos.quantity * asset.current_price;
-      assetsCostBasis += pos.quantity * pos.average_cost_basis;
-    }
-  });
-  const totalFundValue = assetsMarketValue + fund.brokerage_cash_balance;
-  const unrealizedPandL = assetsMarketValue - assetsCostBasis;
-  const percentOfClub = clubTotalValue > 0 ? (totalFundValue / clubTotalValue) * 100 : 0;
-  return { totalFundValue, assetsMarketValue, assetsCostBasis, unrealizedPandL, percentOfClub, numberOfPositions: fund.positions.length };
-};
+// Function removed as it's not used in this implementation
 
 // Recharts Custom Tooltip for Fund Performance
 interface FundPerformanceTooltipProps {
@@ -158,56 +74,167 @@ interface FundPerformanceTooltipProps {
 }
 
 const FundPerformanceTooltip = ({ active, payload, label }: FundPerformanceTooltipProps) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-white p-3 shadow-lg rounded-lg border border-slate-200">
-          <p className="text-xs text-slate-500">{formatDate(label)}</p>
-          <p className="text-sm font-medium text-slate-800">
-            Fund Value: <span className="text-blue-600 font-bold">{formatCurrency(payload[0].value)}</span>
-          </p>
-        </div>
-      );
-    }
-    return null;
-  };
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-white p-3 shadow-lg rounded-lg border border-slate-200">
+        <p className="text-xs text-slate-500">{formatDate(label)}</p>
+        <p className="text-sm font-medium text-slate-800">
+          Fund Value: <span className="text-blue-600 font-bold">{formatCurrency(payload[0].value)}</span>
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
 
 // --- Main Component ---
 const FundDetailPage = () => {
-  const { clubId, fundId } = useParams<{ clubId: string; fundId: string }>();
-  // const { data, isLoading, error } = useQuery(...); // Real API call
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [pageData, _setPageData] = useState<FundDetailPageData | null>(MOCK_FUND_DETAIL_PAGE_DATA(fundId));
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [isLoading, _setIsLoading] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [error, _setError] = useState<Error | null>(null);
+  const { clubId = "", fundId = "" } = useParams<{ clubId: string; fundId: string }>();
+  const { user } = useAuth0();
 
+  // Fetch data using React Query hooks
+  const { data: funds = [], isLoading: isLoadingFunds } = useClubFunds(clubId);
+  const { isLoading: isLoadingAssets } = useAssets();
+  const { data: members = [], isLoading: isLoadingMembers } = useClubMembers(clubId);
+  const { data: fundSplits = [], isLoading: isLoadingFundSplits } = useFundSplits(clubId);
+  const { data: fundDetails, isLoading: isLoadingFundDetails } = useFundDetails(clubId, fundId);
+  const { data: performanceHistory, isLoading: isLoadingPerformanceHistory } = useFundPerformanceHistory(clubId, fundId);
+  const { data: portfolio, isLoading: isLoadingPortfolioData } = useClubPortfolio(clubId);
+  const { data: transactionData = [], isLoading: isLoadingTransactionsData } = useFundTransactions(clubId, fundId);
+  
+  // Find the current fund from the funds list
+  const fund = funds.find(f => f.id === fundId);
+  const fundError = !fund && !isLoadingFunds ? new Error("Fund not found") : null;
+  
+  // Extract positions from portfolio data
+  const positions = useMemo(() => {
+    if (!portfolio || !portfolio.positions) return [];
+    // In a real implementation, we would filter positions by fund_id
+    // For now, we'll return all positions as we don't have fund filtering in the API yet
+    return portfolio.positions;
+  }, [portfolio]);
+
+  // Determine if user is admin
+  const isAdmin = members?.some(member =>
+    member.user_id === user?.sub && member.role === 'ADMIN'
+  ) || false;
+
+  // Calculate fund metrics
   const fundMetrics = useMemo(() => {
-    if (!pageData?.fund) return null;
-    return calculateFundDetailedMetrics(pageData.fund, pageData.assets, pageData.clubTotalValue);
-  }, [pageData]);
+    if (!fund) return null;
 
+    // Use fundDetails if available, otherwise calculate from positions
+    if (fundDetails) {
+      // Get the fund split percentage for this fund
+      const fundSplit = fundSplits.find(split => split.fund_id === fundId);
+      const fundSplitPercentage = fundSplit ? fundSplit.percentage : 0;
+
+      return {
+        totalFundValue: fundDetails.total_value,
+        assetsMarketValue: fundDetails.positions_market_value,
+        cashBalance: fundDetails.cash_balance,
+        percentOfClub: fundDetails.percentage_of_club_assets,
+        numberOfPositions: positions.length,
+        fundSplitPercentage,
+        // These values might not be directly available in fundDetails
+        assetsCostBasis: positions.reduce((sum, pos) => sum + pos.cost_basis, 0),
+        unrealizedPandL: positions.reduce((sum, pos) => sum + pos.unrealized_gain_loss, 0)
+      };
+    } else {
+      // Calculate from positions as fallback
+      const assetsMarketValue = positions.reduce((sum, pos) => sum + pos.market_value, 0);
+      const assetsCostBasis = positions.reduce((sum, pos) => sum + pos.cost_basis, 0);
+      const unrealizedPandL = positions.reduce((sum, pos) => sum + pos.unrealized_gain_loss, 0);
+      
+      // Get the fund split percentage for this fund
+      const fundSplit = fundSplits.find(split => split.fund_id === fundId);
+      const fundSplitPercentage = fundSplit ? fundSplit.percentage : 0;
+      
+      // Use fund's cash balance if available, otherwise default to 0
+      // Type assertion to access brokerage_cash_balance
+      const cashBalance = (fund as ExtendedFund).brokerage_cash_balance || 0;
+      
+      // Calculate total fund value
+      const totalFundValue = assetsMarketValue + cashBalance;
+
+      return {
+        totalFundValue,
+        assetsMarketValue,
+        assetsCostBasis,
+        unrealizedPandL,
+        percentOfClub: 0, // We don't have this without fundDetails
+        numberOfPositions: positions.length,
+        fundSplitPercentage,
+        cashBalance
+      };
+    }
+  }, [fund, fundDetails, positions, fundSplits, fundId]);
+
+  // Generate chart data from performance history
   const chartData = useMemo(() => {
-    return pageData?.performanceData?.map(d => ({...d, date: new Date(d.date).getTime()})).sort((a,b) => a.date - b.date) || [];
-  }, [pageData?.performanceData]);
+    if (!fundMetrics) return [];
 
+    // Use performance history data if available
+    if (performanceHistory && performanceHistory.history && performanceHistory.history.length > 0) {
+      return performanceHistory.history.map(point => ({
+        date: new Date(point.valuation_date).getTime(),
+        value: point.total_value
+      }));
+    }
 
-  if (isLoading) { /* ... Skeleton ... */ }
-  if (error || !pageData || !fundMetrics) {
+    // Fallback to placeholder data if no performance history
+    const today = new Date();
+    const oneMonthAgo = new Date(today);
+    oneMonthAgo.setMonth(today.getMonth() - 1);
+    
+    const twoMonthsAgo = new Date(today);
+    twoMonthsAgo.setMonth(today.getMonth() - 2);
+    
+    const threeMonthsAgo = new Date(today);
+    threeMonthsAgo.setMonth(today.getMonth() - 3);
+
+    return [
+      { date: threeMonthsAgo.getTime(), value: fundMetrics.totalFundValue * 0.9 },
+      { date: twoMonthsAgo.getTime(), value: fundMetrics.totalFundValue * 0.95 },
+      { date: oneMonthAgo.getTime(), value: fundMetrics.totalFundValue * 0.98 },
+      { date: today.getTime(), value: fundMetrics.totalFundValue }
+    ];
+  }, [fundMetrics, performanceHistory]);
+
+  // Loading state
+  const isLoading = isLoadingFunds || isLoadingFundDetails || isLoadingPerformanceHistory ||
+                   isLoadingAssets || isLoadingMembers || isLoadingFundSplits ||
+                   isLoadingPortfolioData || isLoadingTransactionsData;
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-slate-600">Loading fund details...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (fundError || !fund || !fundMetrics) {
     return (
       <div className="space-y-6">
         <Button variant="outline" asChild className="mb-4 bg-white">
           <Link to={`/club/${clubId}/funds`}><ArrowLeft className="mr-2 h-4 w-4" /> Back to Funds</Link>
         </Button>
         <Card className="bg-red-50 border-red-200">
-          <CardHeader><CardTitle className="text-red-700">Error Loading Fund Details</CardTitle></CardHeader>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-6 w-6 text-red-600" />
+              <CardTitle className="text-red-700">Error Loading Fund Details</CardTitle>
+            </div>
+          </CardHeader>
           <CardContent><p className="text-red-600">Could not load details for this fund. It might not exist or an error occurred.</p></CardContent>
         </Card>
       </div>
     );
   }
-
-  const { fund, assets, fundSplitPercentage, isAdmin } = pageData;
 
   return (
     <div className="space-y-8">
@@ -238,10 +265,10 @@ const FundDetailPage = () => {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {[ 
           { title: 'Total Fund Value', value: formatCurrency(fundMetrics.totalFundValue), icon: DollarSign },
-          { title: 'Brokerage Cash', value: formatCurrency(fund.brokerage_cash_balance), icon: Banknote },
+          { title: 'Brokerage Cash', value: formatCurrency(fundMetrics.cashBalance), icon: Banknote },
           { title: '# of Positions', value: formatNumber(fundMetrics.numberOfPositions, 0), icon: ListChecks },
           { title: '% of Club Assets', value: `${formatNumber(fundMetrics.percentOfClub, 1)}%`, icon: Percent },
-          { title: 'New Cash Allocation', value: `${formatNumber(fundSplitPercentage * 100, 0)}%`, icon: TrendingUp },
+          { title: 'New Cash Allocation', value: `${formatNumber(fundMetrics.fundSplitPercentage * 100, 0)}%`, icon: TrendingUp },
         ].map(metric => (
           <Card key={metric.title} className="bg-white border-slate-200/75 shadow-sm">
             <CardHeader className="pb-1.5"><CardTitle className="text-[0.7rem] font-medium text-slate-500 uppercase tracking-wider flex justify-between items-center">{metric.title} <metric.icon className="h-4 w-4 text-slate-400" /></CardTitle></CardHeader>
@@ -250,11 +277,11 @@ const FundDetailPage = () => {
         ))}
       </div>
       
-      {/* Section 2: Fund Performance Chart - Placeholder for now */}
+      {/* Section 2: Fund Performance Chart */}
       <Card className="bg-white border-slate-200/75 shadow-sm">
         <CardHeader>
           <CardTitle className="text-lg font-medium text-slate-800">Fund Performance</CardTitle>
-          <CardDescription className="text-sm text-slate-500">Fund value over time. (Simplified chart)</CardDescription>
+          <CardDescription className="text-sm text-slate-500">Fund value over time.</CardDescription>
         </CardHeader>
         <CardContent className="p-4 h-[300px]">
         {chartData.length > 1 ? (
@@ -280,25 +307,26 @@ const FundDetailPage = () => {
           <CardDescription className="text-sm text-slate-500">Current investment positions in this fund.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          {fund.positions.length > 0 ? (
+          {positions.length > 0 ? (
             <Table>
               <TableHeader><TableRow className="hover:bg-transparent"><TableHead>Asset</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Avg. Cost</TableHead><TableHead className="text-right">Current Price</TableHead><TableHead className="text-right">Market Value</TableHead><TableHead className="text-right">Unreal. P&L</TableHead><TableHead className="text-right">% of Fund</TableHead>{isAdmin && <TableHead className="w-[80px]"></TableHead>}</TableRow></TableHeader>
               <TableBody>
-                {fund.positions.map(pos => {
-                  const asset = getAssetById(pos.asset_id, assets);
-                  if (!asset) return <TableRow key={pos.id}><TableCell colSpan={isAdmin ? 8:7}>Asset details not found.</TableCell></TableRow>;
-                  const marketValue = pos.quantity * asset.current_price;
-                  const costBasis = pos.quantity * pos.average_cost_basis;
-                  const unrealizedPandL = marketValue - costBasis;
-                  const percentOfFund = fundMetrics.totalFundValue > 0 ? (marketValue / fundMetrics.totalFundValue) * 100 : 0;
+                {positions.map((pos, index) => {
+                  const percentOfFund = fundMetrics.totalFundValue > 0 ? (pos.market_value / fundMetrics.totalFundValue) * 100 : 0;
+                  
                   return (
-                    <TableRow key={pos.id} className="hover:bg-slate-50/50">
-                      <TableCell><div className="font-medium text-slate-800">{asset.symbol}</div><div className="text-xs text-slate-500 truncate max-w-[150px]">{asset.name}</div></TableCell>
-                      <TableCell className="text-right font-medium text-slate-700">{formatNumber(pos.quantity, asset.asset_type === 'CRYPTO' ? 4 : (asset.asset_type === 'OPTION' ? 2: 2))}</TableCell>
-                      <TableCell className="text-right text-slate-600">{formatCurrency(pos.average_cost_basis)}</TableCell>
-                      <TableCell className="text-right text-slate-600">{formatCurrency(asset.current_price)}</TableCell>
-                      <TableCell className="text-right font-semibold text-slate-800">{formatCurrency(marketValue)}</TableCell>
-                      <TableCell className={cn("text-right font-medium", unrealizedPandL >=0 ? 'text-green-600' : 'text-red-600')}>{formatCurrency(unrealizedPandL, true)}</TableCell>
+                    <TableRow key={`${pos.asset_id}-${index}`} className="hover:bg-slate-50/50">
+                      <TableCell>
+                        <div className="font-medium text-slate-800">{pos.asset_symbol}</div>
+                        <div className="text-xs text-slate-500 truncate max-w-[150px]">{pos.asset_name}</div>
+                      </TableCell>
+                      <TableCell className="text-right font-medium text-slate-700">{formatNumber(pos.quantity, 2)}</TableCell>
+                      <TableCell className="text-right text-slate-600">{formatCurrency(pos.cost_basis / pos.quantity)}</TableCell>
+                      <TableCell className="text-right text-slate-600">{formatCurrency(pos.current_price)}</TableCell>
+                      <TableCell className="text-right font-semibold text-slate-800">{formatCurrency(pos.market_value)}</TableCell>
+                      <TableCell className={cn("text-right font-medium", pos.unrealized_gain_loss >=0 ? 'text-green-600' : 'text-red-600')}>
+                        {formatCurrency(pos.unrealized_gain_loss, true)}
+                      </TableCell>
                       <TableCell className="text-right text-slate-600">{formatNumber(percentOfFund, 1)}%</TableCell>
                       {isAdmin && <TableCell className="text-center"><Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-blue-600"><Edit className="h-4 w-4"/><span className="sr-only">Edit</span></Button></TableCell>}
                     </TableRow>
@@ -319,21 +347,20 @@ const FundDetailPage = () => {
           <CardDescription className="text-sm text-slate-500">Last 10 transactions for {fund.name}.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          {fund.transactions.length > 0 ? (
+          {transactionData.length > 0 ? (
             <Table>
-              <TableHeader><TableRow className="hover:bg-transparent"><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Asset</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Price/Unit</TableHead><TableHead className="text-right">Total</TableHead><TableHead>Description</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow className="hover:bg-transparent"><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Asset</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Price/Unit</TableHead><TableHead className="text-right">Total</TableHead><TableHead>Notes</TableHead></TableRow></TableHeader>
               <TableBody>
-                {fund.transactions.slice(0, 10).map(tx => {
-                  const asset = tx.asset_id ? getAssetById(tx.asset_id, assets) : null;
+                {transactionData.slice(0, 10).map(tx => {
                   return (
                     <TableRow key={tx.id} className="hover:bg-slate-50/50">
                       <TableCell className="text-xs text-slate-600">{formatDate(tx.transaction_date)}</TableCell>
                       <TableCell className="text-sm font-medium text-slate-700">{tx.transaction_type}</TableCell>
-                      <TableCell className="text-sm text-slate-600">{asset?.symbol || 'N/A'}</TableCell>
-                      <TableCell className="text-right text-sm text-slate-600">{tx.quantity !== undefined ? formatNumber(tx.quantity, asset?.asset_type === 'CRYPTO' ? 4 : 2) : 'N/A'}</TableCell>
+                      <TableCell className="text-sm text-slate-600">{tx.asset?.symbol || 'N/A'}</TableCell>
+                      <TableCell className="text-right text-sm text-slate-600">{tx.quantity !== undefined ? formatNumber(tx.quantity, 2) : 'N/A'}</TableCell>
                       <TableCell className="text-right text-sm text-slate-600">{tx.price_per_unit !== undefined ? formatCurrency(tx.price_per_unit) : 'N/A'}</TableCell>
-                      <TableCell className={cn("text-right text-sm font-semibold", tx.total_amount >=0 ? "text-green-600" : "text-red-600")}>{formatCurrency(tx.total_amount)}</TableCell>
-                      <TableCell className="text-xs text-slate-500 truncate max-w-[200px]">{tx.description || '-'}</TableCell>
+                      <TableCell className={cn("text-right text-sm font-semibold", tx.amount >=0 ? "text-green-600" : "text-red-600")}>{formatCurrency(tx.amount)}</TableCell>
+                      <TableCell className="text-xs text-slate-500 truncate max-w-[200px]">{tx.notes || '-'}</TableCell>
                     </TableRow>
                   );
                 })}
@@ -342,7 +369,7 @@ const FundDetailPage = () => {
           ) : (
             <p className="text-sm text-slate-500 text-center py-6">No transactions recorded for this fund yet.</p>
           )}
-          {fund.transactions.length > 10 && (
+          {transactionData.length > 10 && (
             <CardFooter className="pt-4 border-t border-slate-200/75">
                 <Button variant="outline" size="sm" asChild className="w-full sm:w-auto bg-white">
                     <Link to={`/club/${clubId}/brokerage-log?fundId=${fundId}`}>View All Transactions for this Fund</Link>

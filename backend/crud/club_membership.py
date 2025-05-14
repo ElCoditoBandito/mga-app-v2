@@ -2,9 +2,10 @@
 
 import uuid
 from typing import Sequence, Dict, Any # Import Dict, Any
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
 
 from backend.models import ClubMembership
 from backend.models.enums import ClubRole
@@ -27,7 +28,7 @@ async def create_club_membership(
     db_obj = ClubMembership(
         user_id=membership_data.get("user_id"),
         club_id=membership_data.get("club_id"),
-        role=membership_data.get("role", ClubRole.MEMBER), # Default if not provided
+        role=membership_data.get("role", ClubRole.Member), # Default if not provided
     )
     db.add(db_obj)
     await db.flush()
@@ -63,13 +64,19 @@ async def get_multi_club_memberships(
     db: AsyncSession, *, skip: int = 0, limit: int = 100, club_id: uuid.UUID | None = None, user_id: uuid.UUID | None = None
 ) -> Sequence[ClubMembership]:
     """Gets multiple club memberships with pagination and optional filtering."""
-    stmt = select(ClubMembership)
+    stmt = select(ClubMembership).options(
+        selectinload(ClubMembership.club),  # Eager load the related Club
+        selectinload(ClubMembership.user)   # Eager load the related User
+    )
     if club_id:
         stmt = stmt.filter(ClubMembership.club_id == club_id)
     if user_id:
         stmt = stmt.filter(ClubMembership.user_id == user_id)
 
-    stmt = stmt.offset(skip).limit(limit).order_by(ClubMembership.created_at, ClubMembership.id)
+    stmt = stmt.offset(skip)
+    if limit > 0:  # Only apply limit if it's a positive number
+        stmt = stmt.limit(limit)
+    stmt = stmt.order_by(ClubMembership.created_at, ClubMembership.id)
     result = await db.execute(stmt)
     # Add unique() for safety
     return result.unique().scalars().all()

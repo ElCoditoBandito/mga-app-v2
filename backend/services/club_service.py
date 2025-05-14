@@ -3,7 +3,7 @@
 import uuid
 import logging # Import logging
 from decimal import Decimal # Added for balance check
-from typing import Dict, Any, Sequence
+from typing import Dict, Any, Sequence, List
 
 # Assuming SQLAlchemy and FastAPI are installed in the environment
 # If running locally, ensure these dependencies are met.
@@ -47,15 +47,24 @@ async def create_club(
     try:
         new_club: Club = await crud_club.create_club(db=db, club_data=club_data)
         log.info(f"Created club {new_club.id} with name '{new_club.name}'")
-        default_fund_data: Dict[str, Any] = {"club_id": new_club.id, "name": "General Fund", "description": "Default fund for general club holdings.", "is_active": True}
+        default_fund_data: Dict[str, Any] = {"club_id": new_club.id, "name": "Default Fund", "description": "Default fund for general club holdings.", "is_active": True}
         default_fund = await crud_fund.create_fund(db=db, fund_data=default_fund_data)
         log.info(f"Created default fund {default_fund.id} for club {new_club.id}")
-        creator_membership_data: Dict[str, Any] = {"user_id": creator.id, "club_id": new_club.id, "role": ClubRole.ADMIN}
+        creator_membership_data: Dict[str, Any] = {"user_id": creator.id, "club_id": new_club.id, "role": ClubRole.Admin}
         creator_membership = await crud_membership.create_club_membership(db=db, membership_data=creator_membership_data)
         log.info(f"Created ADMIN membership {creator_membership.id} for creator {creator.id} in club {new_club.id}")
         await db.flush()
         log.info(f"Successfully created club {new_club.id} and associated defaults.")
-        return new_club
+
+        # Reload the club with all relationships using the updated CRUD function
+        reloaded_club = await crud_club.get_club(db, new_club.id)
+        if not reloaded_club:
+            log.error(f"Failed to reload club {new_club.id} after creation for response serialization.")
+            # This case should be rare if creation was successful, but handle defensively.
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve complete club details after creation.")
+
+        log.info(f"Refreshed club {reloaded_club.id} with all relationships for response serialization.")
+        return reloaded_club
     except IntegrityError as e: log.exception(f"IntegrityError during club creation for creator {creator.id}, name '{club_in.name}': {e}"); await db.rollback(); raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Could not create club. A club with name '{club_in.name}' might already exist.")
     except Exception as e: log.exception(f"Error during club creation for creator {creator.id}: {e}"); await db.rollback(); raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while creating the club.")
 
@@ -70,18 +79,34 @@ async def get_club_details(db: AsyncSession, *, club_id: uuid.UUID) -> Club:
     return club
 
 
-async def list_user_clubs(db: AsyncSession, *, auth0_sub: str) -> Sequence[Club]:
-    """ Retrieves a list of clubs that the specified user is a member of. (Implementation omitted) """
-    # ... (implementation as before) ...
+async def list_user_clubs(db: AsyncSession, *, auth0_sub: str) -> List[Dict[str, Any]]:
+    """ Retrieves a list of clubs that the specified user is a member of, including the user's role in each club. """
     log.info(f"Listing clubs for user with auth0_sub: {auth0_sub}")
     user = await crud_user.get_user_by_auth0_sub(db=db, auth0_sub=auth0_sub)
     if not user: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User with auth0_sub '{auth0_sub}' not found.")
     log.debug(f"Found user {user.id} for auth0_sub {auth0_sub}")
-    memberships = await crud_membership.get_multi_club_memberships(db=db, user_id=user.id, limit=1000 )
-    user_clubs = [m.club for m in memberships if m.club]
-    log.info(f"Found {len(user_clubs)} clubs for user {user.id}")
-    user_clubs.sort(key=lambda club: club.name)
-    return user_clubs
+    
+    # Fetch memberships with club relationship loaded
+    memberships = await crud_membership.get_multi_club_memberships(db=db, user_id=user.id, limit=1000)
+    
+    # Create a list of dictionaries with club details and the user's role
+    clubs_data_for_schema = []
+    for m in memberships:
+        if m.club:  # Ensure the club object exists on the membership
+            club_data = {
+                "id": m.club.id,
+                "name": m.club.name,
+                "description": m.club.description,
+                "current_user_role": m.role  # Add the user's role in this club
+            }
+            clubs_data_for_schema.append(club_data)
+    
+    log.info(f"Prepared {len(clubs_data_for_schema)} clubs with role info for user {user.id}")
+    
+    # Sort by name
+    clubs_data_for_schema.sort(key=lambda club_dict: club_dict["name"])
+    
+    return clubs_data_for_schema
 
 
 async def add_club_member(
@@ -89,7 +114,7 @@ async def add_club_member(
     *,
     club_id: uuid.UUID,
     member_email: str,
-    role: ClubRole = ClubRole.MEMBER,
+    role: ClubRole = ClubRole.Member,
     requesting_user: User # User object of the person making the request
 ) -> ClubMembership:
     """ Adds an existing user (found by email) to a club with a specified role. """
@@ -103,7 +128,7 @@ async def add_club_member(
     if requestor_membership: log.debug(f"DEBUG AUTH CHECK: Found requestor membership for user {requesting_user.id} in club {club_id}. Role: {requestor_membership.role}")
     else: log.error(f"DEBUG AUTH CHECK: No membership found for requestor user {requesting_user.id} in club {club_id}.")
     # --- END DEBUGGING ---
-    if not requestor_membership or requestor_membership.role != ClubRole.ADMIN:
+    if not requestor_membership or requestor_membership.role != ClubRole.Admin:
         log.warning(f"User {requesting_user.id} attempted to add member to club {club_id} without ADMIN role.")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User does not have permission to add members to this club.")
     log.info(f"Authorization check passed: User {requesting_user.id} is ADMIN of club {club_id}")
@@ -135,13 +160,13 @@ async def update_member_role(
     # ... (implementation as before) ...
     log.info(f"Attempting to update role for user {member_user_id} in club {club_id} to {new_role.value} by user {requesting_user.id}")
     requestor_membership = await crud_membership.get_club_membership_by_user_and_club(db=db, user_id=requesting_user.id, club_id=club_id)
-    if not requestor_membership or requestor_membership.role != ClubRole.ADMIN: log.warning(f"User {requesting_user.id} attempted to update role in club {club_id} without ADMIN role."); raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User does not have permission to update member roles in this club.")
+    if not requestor_membership or requestor_membership.role != ClubRole.Admin: log.warning(f"User {requesting_user.id} attempted to update role in club {club_id} without ADMIN role."); raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User does not have permission to update member roles in this club.")
     log.info(f"Authorization check passed: User {requesting_user.id} is ADMIN of club {club_id}")
     target_membership = await crud_membership.get_club_membership_by_user_and_club(db=db, user_id=member_user_id, club_id=club_id)
     if not target_membership: log.warning(f"Membership for user {member_user_id} in club {club_id} not found for role update."); raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Membership for target user in club {club_id} not found.")
-    if target_membership.role == ClubRole.ADMIN and new_role != ClubRole.ADMIN:
+    if target_membership.role == ClubRole.Admin and new_role != ClubRole.Admin:
         all_memberships = await crud_membership.get_multi_club_memberships(db=db, club_id=club_id, limit=0)
-        admin_count = sum(1 for m in all_memberships if m.role == ClubRole.ADMIN)
+        admin_count = sum(1 for m in all_memberships if m.role == ClubRole.Admin)
         if admin_count <= 1: log.warning(f"Attempt blocked to remove role from last admin (User: {member_user_id}) in club {club_id}."); raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove the last admin role from the club.")
     update_data = ClubMembershipUpdate(role=new_role)
     try:
@@ -166,7 +191,7 @@ async def remove_club_member(
 
     # --- 1. Authorization Check ---
     requestor_membership = await crud_membership.get_club_membership_by_user_and_club(db=db, user_id=requesting_user.id, club_id=club_id)
-    if not requestor_membership or requestor_membership.role != ClubRole.ADMIN:
+    if not requestor_membership or requestor_membership.role != ClubRole.Admin:
         log.warning(f"User {requesting_user.id} attempted to remove member from club {club_id} without ADMIN role.")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User does not have permission to remove members from this club.")
     log.info(f"Authorization check passed: User {requesting_user.id} is ADMIN of club {club_id}")
@@ -183,9 +208,9 @@ async def remove_club_member(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Membership for user to be removed in club {club_id} not found.")
 
     # --- 4. Prevent Removing Last Admin ---
-    if target_membership.role == ClubRole.ADMIN:
+    if target_membership.role == ClubRole.Admin:
         all_memberships = await crud_membership.get_multi_club_memberships(db=db, club_id=club_id, limit=0) # Fetch all to count admins
-        admin_count = sum(1 for m in all_memberships if m.role == ClubRole.ADMIN)
+        admin_count = sum(1 for m in all_memberships if m.role == ClubRole.Admin)
         if admin_count <= 1:
             log.warning(f"Attempt blocked to remove last admin (User: {member_user_id}) from club {club_id}.")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove the last admin from the club.")

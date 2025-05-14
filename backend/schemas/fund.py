@@ -4,7 +4,7 @@
 Pydantic Schemas for Fund and FundSplit Resources
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional, List, TYPE_CHECKING
 
@@ -110,3 +110,22 @@ class FundSplitItem(BaseModel):
     def percentage_must_be_positive_and_le_one(cls, v: Decimal) -> Decimal:
         # ... (validation logic) ...
         return v
+
+# --- Fund Detailed Read Schema ---
+class FundReadDetailed(FundRead):
+    """Extended fund schema with additional calculated metrics for the fund detail page."""
+    cash_balance: Decimal = Field(..., max_digits=15, decimal_places=2, description="Current cash balance in the fund's brokerage account")
+    positions_market_value: Decimal = Field(..., max_digits=15, decimal_places=2, description="Total market value of all positions in the fund")
+    total_value: Decimal = Field(..., max_digits=15, decimal_places=2, description="Total value of the fund (cash + positions)")
+    percentage_of_club_assets: Decimal = Field(..., max_digits=5, decimal_places=2, description="Percentage of total club assets this fund represents")
+    model_config = orm_config
+
+# --- Fund Performance History Schemas ---
+class FundPerformanceHistoryPoint(BaseModel):
+    """A single data point in a fund's performance history."""
+    valuation_date: date
+    total_value: Decimal = Field(..., max_digits=15, decimal_places=2)
+
+class FundPerformanceHistoryResponse(BaseModel):
+    """Response containing a fund's performance history."""
+    history: List[FundPerformanceHistoryPoint]

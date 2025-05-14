@@ -10,6 +10,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'; // Ass
 import { CardDescription, CardHeader, CardTitle } from '@/components/ui/card'; // For layout if used directly
 import { AlertCircle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TransactionType } from '@/enums';
 
 // --- Mock Data Structures (align with backend Pydantic schemas if possible) ---
 interface FundSlim {
@@ -20,7 +21,7 @@ interface FundSlim {
 // Based on TransactionCreateTrade and AssetCreateStock
 export interface StockTradeFormData {
   fund_id: string;            // required
-  transaction_type: 'BUY_STOCK' | 'SELL_STOCK'; // required
+  transaction_type: string;   // required - using TransactionType.BUY_STOCK or TransactionType.SELL_STOCK
   asset_symbol: string;       // required (for AssetCreateStock or matching existing)
   asset_name?: string;        // optional (for AssetCreateStock)
   transaction_date: string;   // required, ISO format
@@ -45,7 +46,7 @@ const LogStockTradeForm: React.FC<LogStockTradeFormProps> = ({
   onCancel,
 }) => {
   const [fundId, setFundId] = useState<string>(initialFundId || (funds.length > 0 ? funds[0].id : ''));
-  const [transactionType, setTransactionType] = useState<'BUY_STOCK' | 'SELL_STOCK'>('BUY_STOCK');
+  const [transactionType, setTransactionType] = useState<string>(TransactionType.BUY_STOCK);
   const [assetSymbol, setAssetSymbol] = useState('');
   const [assetName, setAssetName] = useState('');
   const [transactionDate, setTransactionDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -66,7 +67,7 @@ const LogStockTradeForm: React.FC<LogStockTradeFormProps> = ({
       return null;
     }
     const baseAmount = numQuantity * numPrice;
-    if (transactionType === 'BUY_STOCK') {
+    if (transactionType === TransactionType.BUY_STOCK) {
       return baseAmount + numFees;
     } else { // SELL_STOCK
       return baseAmount - numFees;
@@ -165,15 +166,15 @@ const LogStockTradeForm: React.FC<LogStockTradeFormProps> = ({
           <Label className="font-medium text-slate-700">Trade Type <span className="text-red-500">*</span></Label>
           <RadioGroup
             value={transactionType}
-            onValueChange={(value: 'BUY_STOCK' | 'SELL_STOCK') => setTransactionType(value)}
+            onValueChange={(value: string) => setTransactionType(value)}
             className="mt-2 flex space-x-4"
           >
             <div className="flex items-center space-x-2">
-              <RadioGroupItem value="BUY_STOCK" id="buy_stock" />
+              <RadioGroupItem value={TransactionType.BUY_STOCK} id="buy_stock" />
               <Label htmlFor="buy_stock" className="font-normal text-slate-700 cursor-pointer">Buy Stock</Label>
             </div>
             <div className="flex items-center space-x-2">
-              <RadioGroupItem value="SELL_STOCK" id="sell_stock" />
+              <RadioGroupItem value={TransactionType.SELL_STOCK} id="sell_stock" />
               <Label htmlFor="sell_stock" className="font-normal text-slate-700 cursor-pointer">Sell Stock</Label>
             </div>
           </RadioGroup>

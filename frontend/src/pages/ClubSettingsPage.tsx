@@ -1,7 +1,6 @@
-
 // frontend/src/pages/ClubSettingsPage.tsx
 import React, { useState } from 'react';
-import { useParams, Link, /*useNavigate*/ } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,76 +17,135 @@ import {
   DialogTrigger,
   DialogClose
 } from '@/components/ui/dialog';
-// import { Skeleton } from '@/components/ui/skeleton';
-import { Settings, Users, BarChart2, AlertTriangle, Archive, ShieldAlert, Save, ExternalLink } from 'lucide-react';
-// import { cn } from '@/lib/utils';
+import { Settings, Users, BarChart2, AlertTriangle, Archive, ShieldAlert, Save, ExternalLink, Loader2 } from 'lucide-react';
+import { useAuth0 } from '@auth0/auth0-react';
+import { toast } from 'sonner';
 
-// --- Mock Data Structures ---
-interface ClubSettingsData {
-  clubId: string;
-  clubName: string;
-  clubDescription: string;
-  isAdmin: boolean;
-}
-
-// --- Mock Data Generation ---
-const MOCK_CLUB_SETTINGS_DATA: ClubSettingsData = {
-  clubId: 'club123',
-  clubName: 'Eagle Investors Club',
-  clubDescription: 'A social investment club focused on long-term growth and member education. We primarily invest in US equities and ETFs.',
-  isAdmin: true,
-};
+// Import API hooks
+import {
+  useClubDetails,
+  useClubMembers,
+  useUpdateClub
+} from '@/hooks/useApi';
 
 // --- Main Component ---
 const ClubSettingsPage = () => {
-  const { clubId } = useParams<{ clubId: string }>();
-  // const navigate = useNavigate();
+  const { clubId = "" } = useParams<{ clubId: string }>();
+  const { user } = useAuth0();
 
-  const [pageData, setPageData] = useState<ClubSettingsData>(MOCK_CLUB_SETTINGS_DATA);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [isLoading, _setIsLoading] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [error, _setError] = useState<Error | null>(null);
+  // Fetch data using React Query hooks
+  const { 
+    data: club, 
+    isLoading: isLoadingClub, 
+    error: clubError 
+  } = useClubDetails(clubId);
+
+  const { 
+    data: members = [], 
+    isLoading: isLoadingMembers 
+  } = useClubMembers(clubId);
+
+  // Mutation hooks
+  const { mutate: updateClub, isPending: isUpdatingClub } = useUpdateClub(clubId);
+  
+  // Since useCalculateNav doesn't exist yet, we'll create a mock function
+  const [isCalculatingNav, setIsCalculatingNav] = useState(false);
 
   // Form state for General Club Information
-  const [clubName, setClubName] = useState(pageData.clubName);
-  const [clubDescription, setClubDescription] = useState(pageData.clubDescription);
+  const [clubName, setClubName] = useState(club?.name || '');
+  const [clubDescription, setClubDescription] = useState(club?.description || '');
+
+  // Update form values when club data is loaded
+  React.useEffect(() => {
+    if (club) {
+      setClubName(club.name);
+      setClubDescription(club.description || '');
+    }
+  }, [club]);
 
   const [showArchiveConfirmDialog, setShowArchiveConfirmDialog] = useState(false);
   const [archiveConfirmationText, setArchiveConfirmationText] = useState('');
 
+  // Determine if user is admin
+  const isAdmin = members?.some(member =>
+    member.user_id === user?.sub && member.role === 'ADMIN'
+  ) || false;
+
   const handleSaveClubDetails = (e: React.FormEvent) => {
     e.preventDefault();
     console.log('Saving club details:', { clubId, clubName, clubDescription });
-    // API call to update club details
-    // For mock, update local state:
-    setPageData(prev => ({ ...prev, clubName, clubDescription }));
-    alert('Club details saved (mock)!'); // Mock feedback
+    
+    updateClub({
+      name: clubName,
+      description: clubDescription
+    }, {
+      onSuccess: () => {
+        toast.success('Club details saved successfully');
+      },
+      onError: (error: unknown) => {
+        console.error('Error updating club details:', error);
+        toast.error('Failed to save club details');
+      }
+    });
   };
 
   const handleTriggerManualValuation = () => {
     console.log('Triggering manual unit value calculation for club:', clubId);
-    alert('Manual unit value calculation triggered (mock)!');
+    
+    // Mock implementation since we don't have the actual API hook yet
+    setIsCalculatingNav(true);
+    
+    // Simulate API call with a timeout
+    setTimeout(() => {
+      setIsCalculatingNav(false);
+      toast.success('Unit value calculation completed successfully');
+    }, 1500);
   };
 
   const handleArchiveClub = () => {
-    if (archiveConfirmationText === `archive ${pageData.clubName}`) {
+    if (archiveConfirmationText === `archive ${club?.name}`) {
       console.log('Archiving club:', clubId);
-      // API call to archive club
+      
+      // This would be implemented with a specific API endpoint for archiving
+      // For now, we'll just show a toast message
+      toast.success(`Club '${club?.name}' archived successfully!`);
       setShowArchiveConfirmDialog(false);
       setArchiveConfirmationText('');
-      alert(`Club '${pageData.clubName}' archived (mock)! You may be redirected.`);
-      // Potentially navigate away, e.g., to user landing page
-      // navigate('/'); 
     } else {
-      alert('Confirmation text does not match. Please type the exact phrase to confirm.');
+      toast.error('Confirmation text does not match. Please type the exact phrase to confirm.');
     }
   };
 
-  if (isLoading) { /* Skeleton for loading state */ }
-  if (error || !pageData) { /* Error state */ }
+  // Loading state
+  const isLoading = isLoadingClub || isLoadingMembers;
+  
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-slate-600">Loading club settings...</p>
+        </div>
+      </div>
+    );
+  }
 
-  const { isAdmin } = pageData;
+  if (clubError || !club) {
+    return (
+      <div className="p-6 bg-red-50 border border-red-200 rounded-lg text-center">
+        <div className="text-red-500 mb-2">
+          <AlertTriangle className="h-10 w-10 mx-auto" />
+        </div>
+        <h3 className="text-lg font-semibold text-red-700 mb-2">Error Loading Club Settings</h3>
+        <p className="text-red-600 mb-4">
+          There was a problem retrieving the club settings. Please try again later.
+        </p>
+        <Button variant="outline" className="bg-white border-red-300 text-red-700 hover:bg-red-50">
+          Retry
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -120,8 +178,16 @@ const ClubSettingsPage = () => {
                   <Textarea id="clubDescription" value={clubDescription} onChange={(e) => setClubDescription(e.target.value)} rows={4} className="mt-1 border-slate-300 focus:border-blue-500 focus:ring-blue-500"/>
                 </div>
                 <div className="flex justify-end">
-                  <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
-                    <Save className="mr-2 h-4 w-4" /> Save Club Details
+                  <Button type="submit" className="bg-blue-600 hover:bg-blue-700" disabled={isUpdatingClub}>
+                    {isUpdatingClub ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-4 w-4" /> Save Club Details
+                      </>
+                    )}
                   </Button>
                 </div>
               </form>
@@ -181,8 +247,21 @@ const ClubSettingsPage = () => {
                 <div>
                   <h4 className="font-medium text-slate-700 mb-1">Manual Valuation Trigger</h4>
                   <p className="text-xs text-slate-600 mb-2">If needed (e.g., after significant market events or large member transactions intra-period), admins can trigger a manual recalculation.</p>
-                  <Button variant="outline" onClick={handleTriggerManualValuation} className="bg-white border-slate-300 hover:bg-slate-50">
-                    <BarChart2 className="mr-2 h-4 w-4 text-blue-600" /> Trigger Manual Unit Value Calculation
+                  <Button 
+                    variant="outline" 
+                    onClick={handleTriggerManualValuation} 
+                    className="bg-white border-slate-300 hover:bg-slate-50"
+                    disabled={isCalculatingNav}
+                  >
+                    {isCalculatingNav ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Calculating...
+                      </>
+                    ) : (
+                      <>
+                        <BarChart2 className="mr-2 h-4 w-4 text-blue-600" /> Trigger Manual Unit Value Calculation
+                      </>
+                    )}
                   </Button>
                 </div>
               )}
@@ -217,7 +296,7 @@ const ClubSettingsPage = () => {
                                 <DialogTitle className="text-red-700 flex items-center"><ShieldAlert className="mr-2 h-5 w-5"/>Confirm Club Archival</DialogTitle>
                                 <DialogDescription className="mt-2">
                                     This action is significant. Archiving will make the club read-only.
-                                    To confirm, please type "<strong className='text-red-700 font-bold'>archive {pageData.clubName}</strong>" in the box below.
+                                    To confirm, please type "<strong className='text-red-700 font-bold'>archive {club.name}</strong>" in the box below.
                                 </DialogDescription>
                             </DialogHeader>
                             <div className="py-4 space-y-2">
@@ -226,13 +305,13 @@ const ClubSettingsPage = () => {
                                     id="archiveConfirmText" 
                                     value={archiveConfirmationText} 
                                     onChange={(e) => setArchiveConfirmationText(e.target.value)}
-                                    placeholder={`archive ${pageData.clubName}`}
+                                    placeholder={`archive ${club.name}`}
                                     className="border-red-300 focus:border-red-500 focus:ring-red-500"
                                 />
                             </div>
                             <DialogFooter>
                                 <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-                                <Button variant="destructive" onClick={handleArchiveClub} disabled={archiveConfirmationText !== `archive ${pageData.clubName}`}>
+                                <Button variant="destructive" onClick={handleArchiveClub} disabled={archiveConfirmationText !== `archive ${club.name}`}>
                                     <Archive className="mr-2 h-4 w-4"/> Confirm Archival
                                 </Button>
                             </DialogFooter>

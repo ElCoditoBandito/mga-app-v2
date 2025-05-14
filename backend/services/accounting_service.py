@@ -135,18 +135,37 @@ async def process_member_deposit(
     except DivisionByZero: log.error(f"Division by zero error calculating units for club {club.id} with unit value {unit_value_used}."); raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error calculating units for deposit.")
     member_tx_data = {"membership_id": membership.id, "transaction_type": MemberTransactionType.DEPOSIT, "amount": deposit_in.amount, "transaction_date": deposit_in.transaction_date, "unit_value_used": unit_value_used, "units_transacted": units_transacted, "notes": deposit_in.notes}
     try:
-        created_member_tx = await crud_member_tx.create_member_transaction(db=db, member_tx_data=member_tx_data)
-        log.info(f"Created member transaction {created_member_tx.id}")
+        created_member_tx_raw = await crud_member_tx.create_member_transaction(db=db, member_tx_data=member_tx_data)
+        log.info(f"Created member transaction {created_member_tx_raw.id}")
         club.bank_account_balance += deposit_in.amount
         db.add(club) # Add the actual club object
         log.info(f"Updated club {club.id} bank balance to {club.bank_account_balance}")
         await db.flush() # Flush the real session
-        log.info(f"Successfully processed member deposit {created_member_tx.id}")
-        # --- FIX: Removed problematic refresh calls ---
-        # await db.refresh(created_member_tx)
-        # await db.refresh(club)
-        # --- END FIX ---
-        return created_member_tx # Return the object as created/refreshed by CRUD
+        
+        # --- Start Modification ---
+        new_tx_id = created_member_tx_raw.id # Get the ID
+        log.info(f"Re-fetching transaction {new_tx_id} with relationships for response.")
+        
+        # Fetch the created transaction again with relationships needed for the response model
+        stmt = (
+            select(MemberTransaction)
+            .where(MemberTransaction.id == new_tx_id)
+            .options(
+                selectinload(MemberTransaction.membership) # Load the membership relationship
+                .selectinload(ClubMembership.club)        # Load the club relationship on the membership
+            )
+        )
+        result = await db.execute(stmt)
+        final_member_tx = result.unique().scalar_one_or_none()
+
+        if not final_member_tx:
+             # This should ideally not happen if creation succeeded
+             log.error(f"Failed to re-fetch created member transaction {new_tx_id} after creation.")
+             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve transaction details after creation.")
+
+        log.info(f"Successfully processed and fetched member deposit {final_member_tx.id} with relationships.")
+        return final_member_tx # Return the fully loaded object
+        # --- End Modification ---
     except IntegrityError as e: log.exception(f"Database integrity error processing deposit for user {deposit_in.user_id}, club {deposit_in.club_id}: {e}"); await db.rollback(); raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Database conflict processing deposit: {e}")
     except HTTPException as e: await db.rollback(); raise e
     except Exception as e: log.exception(f"Unexpected error processing deposit for user {deposit_in.user_id}, club {deposit_in.club_id}: {e}"); await db.rollback(); raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred processing the deposit.")

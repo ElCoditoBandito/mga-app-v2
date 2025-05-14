@@ -2,7 +2,7 @@
 
 import uuid
 import logging
-from typing import List, Any, Sequence
+from typing import List, Any, Sequence, Optional
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -20,13 +20,15 @@ from backend.schemas import (
     ClubMembershipRead, ClubMembershipUpdate, ClubMembershipReadBasicUser,
     MemberTransactionRead, MemberTransactionCreate, MemberTransactionReadBasic, # Added Basic Read
     UnitValueHistoryRead,
-    FundRead, FundReadBasic, FundUpdate,
-    FundSplitRead, FundSplitItem
+    FundCreate, FundRead, FundReadBasic, FundUpdate, FundReadDetailed,
+    FundSplitRead, FundSplitItem,
+    FundPerformanceHistoryResponse
 )
 from backend.services.reporting_service import ClubPerformanceData, MemberStatementData
+from backend.schemas.activity import ActivityFeedItem
 from backend.services import (
     club_service, reporting_service, accounting_service,
-    fund_service, fund_split_service # Added new services
+    fund_service, fund_split_service, activity_service # Added activity_service
 )
 from backend.models import User, Club, ClubMembership, MemberTransaction, UnitValueHistory, Fund, FundSplit
 from backend.models.enums import MemberTransactionType, ClubRole
@@ -43,7 +45,7 @@ router = APIRouter()
 # --- Request Body Schema Definitions ---
 class MemberAddSchema(BaseModel):
     member_email: EmailStr
-    role: ClubRole = ClubRole.MEMBER
+    role: ClubRole = ClubRole.Member
 
 class MemberRoleUpdateSchema(BaseModel):
     new_role: ClubRole
@@ -201,7 +203,7 @@ async def remove_member(club_id: uuid.UUID = Path(...), user_id: uuid.UUID = Pat
 
 # --- Fund Endpoints ---
 
-@router.get("/{club_id}/funds", response_model=List[FundReadBasic], summary="List Club Funds", description="Retrieves a list of all funds...", dependencies=[Depends(require_club_member)])
+@router.get("/{club_id}/funds", response_model=List[FundRead], summary="List Club Funds", description="Retrieves a list of all funds...", dependencies=[Depends(require_club_member)])
 async def list_club_funds(club_id: uuid.UUID = Path(...), db: AsyncSession = Depends(get_db_session)):
     log.info(f"Received request to list funds for club {club_id}")
     try:
@@ -211,6 +213,45 @@ async def list_club_funds(club_id: uuid.UUID = Path(...), db: AsyncSession = Dep
     except Exception as e:
         log.exception(f"Unexpected error listing funds for club {club_id}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while listing funds.")
+
+
+@router.post(
+    "/{club_id}/funds",
+    response_model=FundReadBasic,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create New Fund for Club",
+    description="Creates a new investment fund within the specified club. Requires ADMIN privileges.",
+    dependencies=[Depends(require_club_admin)]
+)
+async def create_new_fund_for_club_endpoint(
+    club_id: uuid.UUID = Path(...),
+    fund_in: FundCreate = Body(...),
+    db: AsyncSession = Depends(get_db_session)
+):
+    """
+    API endpoint to create a new fund for a specific club.
+    """
+    log.info(f"Received request to create new fund '{fund_in.name}' for club {club_id}")
+    try:
+        # The require_club_admin dependency already ensures the user is an admin of this club.
+        # We can directly call the service function.
+        new_fund = await fund_service.create_new_fund_for_club(
+            db=db,
+            club_id=club_id,
+            fund_in=fund_in
+        )
+        log.info(f"Successfully created fund {new_fund.id} ('{new_fund.name}') for club {club_id} via API.")
+        return new_fund
+    except HTTPException as e:
+        # Re-raise HTTPExceptions from the service layer
+        raise e
+    except Exception as e:
+        # Catch any other unexpected errors from the service layer or here
+        log.exception(f"Unexpected error in API endpoint creating fund '{fund_in.name}' for club {club_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An internal server error occurred while creating the fund."
+        )
 
 
 @router.put("/{club_id}/funds/{fund_id}", response_model=FundRead, summary="Update Fund Details", description="Updates the name, description, or active status...", dependencies=[Depends(require_club_admin)])
@@ -228,6 +269,52 @@ async def update_fund_endpoint(club_id: uuid.UUID = Path(...), fund_id: uuid.UUI
         log.exception(f"Unexpected error updating fund {fund_id}: {e}")
         await db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while updating the fund.")
+
+
+@router.get("/{club_id}/funds/{fund_id}/details", response_model=FundReadDetailed, summary="Get Detailed Fund Information", description="Retrieves detailed information about a specific fund including calculated metrics.", dependencies=[Depends(require_club_member)])
+async def get_fund_details_endpoint(club_id: uuid.UUID = Path(...), fund_id: uuid.UUID = Path(...), db: AsyncSession = Depends(get_db_session)):
+    log.info(f"Received request for detailed information for fund {fund_id} in club {club_id}")
+    try:
+        fund_details = await fund_service.get_fund_detailed(db=db, club_id=club_id, fund_id=fund_id)
+        log.info(f"Successfully retrieved detailed information for fund {fund_id}")
+        return fund_details
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        log.exception(f"Unexpected error retrieving detailed information for fund {fund_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An internal server error occurred while retrieving fund details."
+        )
+
+
+@router.get("/{club_id}/funds/{fund_id}/performance-history", response_model=FundPerformanceHistoryResponse, summary="Get Fund Performance History", description="Retrieves historical performance data for a specific fund.", dependencies=[Depends(require_club_member)])
+async def get_fund_performance_history_endpoint(
+    club_id: uuid.UUID = Path(...),
+    fund_id: uuid.UUID = Path(...),
+    start_date: Optional[date] = Query(None, description="Start date for filtering history"),
+    end_date: Optional[date] = Query(None, description="End date for filtering history"),
+    db: AsyncSession = Depends(get_db_session)
+):
+    log.info(f"Received request for performance history for fund {fund_id} in club {club_id}")
+    try:
+        performance_history = await fund_service.get_fund_performance_history(
+            db=db,
+            club_id=club_id,
+            fund_id=fund_id,
+            start_date=start_date,
+            end_date=end_date
+        )
+        log.info(f"Successfully retrieved performance history for fund {fund_id}")
+        return performance_history
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        log.exception(f"Unexpected error retrieving performance history for fund {fund_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An internal server error occurred while retrieving fund performance history."
+        )
 
 
 # --- Fund Split Endpoints ---
@@ -295,7 +382,7 @@ async def list_member_transactions(club_id: uuid.UUID = Path(...), user_id: uuid
     log.info(f"Request to list member transactions for club {club_id}, filter user_id: {user_id}, requested by user {requesting_membership.user_id}")
     membership_id_to_filter: uuid.UUID | None = None
     list_all_for_club = False
-    is_admin = requesting_membership.role == ClubRole.ADMIN
+    is_admin = requesting_membership.role == ClubRole.Admin
 
     if user_id:
         is_self = requesting_membership.user_id == user_id
@@ -345,7 +432,7 @@ async def get_single_member_transaction(club_id: uuid.UUID = Path(...), member_t
          log.error(f"Mismatch: Member transaction {member_transaction_id} does not belong to club {club_id}.")
          raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Member transaction {member_transaction_id} not found in this club.")
 
-    is_admin = requesting_membership.role == ClubRole.ADMIN
+    is_admin = requesting_membership.role == ClubRole.Admin
     is_self = requesting_membership.id == transaction.membership_id
 
     if not is_admin and not is_self:
@@ -360,7 +447,7 @@ async def get_single_member_transaction(club_id: uuid.UUID = Path(...), member_t
 async def get_member_statement_endpoint(club_id: uuid.UUID = Path(...), user_id: uuid.UUID = Path(...), db: AsyncSession = Depends(get_db_session), requesting_membership: ClubMembership = Depends(require_club_member)):
     log.info(f"Received request for statement for user {user_id} in club {club_id} by user {requesting_membership.user_id}")
     is_self = requesting_membership.user_id == user_id
-    is_admin = requesting_membership.role == ClubRole.ADMIN
+    is_admin = requesting_membership.role == ClubRole.Admin
     if not is_self and not is_admin:
         log.warning(f"User {requesting_membership.user_id} (Role: {requesting_membership.role}) is not authorized to view statement for user {user_id} in club {club_id}.")
         raise HTTPException( status_code=status.HTTP_403_FORBIDDEN, detail="User is not authorized to view this member statement." )
@@ -386,4 +473,36 @@ async def trigger_nav_calculation(club_id: uuid.UUID = Path(...), calc_request: 
     except Exception as e:
         log.exception(f"Unexpected error calculating NAV for club {club_id} on {calc_request.valuation_date}: {e}")
         raise HTTPException( status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while calculating NAV.", )
+
+
+@router.get(
+    "/{club_id}/activity-feed",
+    response_model=List[ActivityFeedItem],
+    summary="Get Club Activity Feed",
+    dependencies=[Depends(require_club_member)]
+)
+async def read_club_activity_feed(
+    club_id: uuid.UUID,
+    limit: int = Query(10, ge=1, le=25),  # Default limit 10, max 25
+    db: AsyncSession = Depends(get_db_session)
+):
+    """
+    Get a combined activity feed for a club, including both general transactions
+    and member transactions, sorted by date.
+    """
+    log.info(f"Received request for activity feed for club {club_id} with limit {limit}")
+    try:
+        activities = await activity_service.get_club_activity_feed(
+            db=db, club_id=club_id, limit=limit
+        )
+        log.info(f"Successfully retrieved {len(activities)} activity items for club {club_id}")
+        return activities
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        log.exception(f"Unexpected error retrieving activity feed for club {club_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An internal server error occurred while retrieving the activity feed."
+        )
 

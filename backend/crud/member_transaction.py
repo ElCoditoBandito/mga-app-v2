@@ -136,3 +136,26 @@ async def get_total_units_for_club(db: AsyncSession, *, club_id: uuid.UUID) -> D
          return Decimal(total_units or "0.0")
     else:
          return total_units
+
+async def get_multi_by_club_id(
+   db: AsyncSession, *, club_id: uuid.UUID, skip: int = 0, limit: int = 5
+) -> Sequence[MemberTransaction]:
+   """
+   Get member transactions for a specific club, ordered by date.
+   Eager loads membership and user data for efficient access to user_name.
+   """
+   stmt = (
+       select(MemberTransaction)
+       .join(ClubMembership)
+       .filter(ClubMembership.club_id == club_id)
+       .options(
+           selectinload(MemberTransaction.membership).selectinload(
+               ClubMembership.user
+           )
+       )
+       .order_by(desc(MemberTransaction.transaction_date))
+       .offset(skip)
+       .limit(limit)
+   )
+   result = await db.execute(stmt)
+   return result.unique().scalars().all()

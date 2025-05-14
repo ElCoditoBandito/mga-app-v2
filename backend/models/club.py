@@ -27,4 +27,5 @@ class Club(IdMixin, TimestampMixin, TableNameMixin, Base):
     # Member transactions are now accessed via ClubMembership: club.memberships[i].member_transactions
     # member_transactions = relationship("MemberTransaction", back_populates="club")
     fund_splits = relationship("FundSplit", back_populates="club", cascade="all, delete-orphan") # Configuration for splits
+    transactions = relationship("Transaction", back_populates="club", cascade="all, delete-orphan")
 

@@ -1,10 +1,11 @@
-
 // frontend/src/pages/ClubDashboardPage.tsx
-import React, { useState, useMemo } from 'react'; // Added useMemo
+import React, { useState, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useParams, Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAuth0 } from '@auth0/auth0-react';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
@@ -38,36 +39,26 @@ import {
   // Legend, // Legend might not be needed for a single line chart
 } from 'recharts';
 
-// Mock data - replace with API calls
-const MOCK_PERFORMANCE_DATA_ALL_TIME = [
-  { date: '2023-01-15', totalClubValue: 95000 },
-  { date: '2023-02-15', totalClubValue: 98000 },
-  { date: '2023-03-15', totalClubValue: 97000 },
-  { date: '2023-04-15', totalClubValue: 102000 },
-  { date: '2023-05-15', totalClubValue: 105000 },
-  { date: '2023-06-15', totalClubValue: 108000 }, 
-  { date: '2023-07-15', totalClubValue: 110000 },
-  { date: '2023-08-15', totalClubValue: 112000 },
-  { date: '2023-09-15', totalClubValue: 115000 },
-  { date: '2023-10-15', totalClubValue: 113000 },
-  { date: '2023-11-15', totalClubValue: 118000 },
-  { date: '2023-12-15', totalClubValue: 120000 },
-  { date: '2024-01-01', totalClubValue: 100000 }, // Deliberate reset for YTD example
-  { date: '2024-01-15', totalClubValue: 122000 }, 
-  { date: '2024-02-01', totalClubValue: 105000 },
-  { date: '2024-02-15', totalClubValue: 123000 },
-  { date: '2024-03-01', totalClubValue: 102000 },
-  { date: '2024-03-15', totalClubValue: 125000 },
-  { date: '2024-04-01', totalClubValue: 110000 },
-  { date: '2024-04-15', totalClubValue: 128000 },
-  { date: '2024-05-01', totalClubValue: 115000 },
-  { date: '2024-05-15', totalClubValue: 130000 },
-  { date: '2024-06-01', totalClubValue: 120000 },
-  { date: '2024-06-15', totalClubValue: 132000 },
-  { date: '2024-07-01', totalClubValue: 122000 },
-  { date: '2024-07-15', totalClubValue: 135000 },
-  { date: '2024-07-28', totalClubValue: 125034.78 }, // Current date in mock
-];
+// Import our custom hooks
+import {
+  useClubDetails,
+  useClubPortfolio,
+  useClubMembers,
+  useCalculateNav,
+  useRecordMemberDeposit,
+  useRecordMemberWithdrawal,
+  useRecordCashTransfer,
+  useClubFunds,
+  useRecordClubExpense,
+  useClubActivityFeed
+} from '@/hooks/useApi';
+
+// Import types and enums
+import type {
+  ClubPortfolio as ClubPortfolioType,
+  ActivityFeedItem
+} from '@/lib/apiClient';
+import { MemberTransactionType, TransactionType } from '@/enums';
 
 // TypeScript interfaces for dashboard data
 export interface PerformanceDataPoint {
@@ -89,9 +80,9 @@ export interface KeyMetrics {
 export interface FundSummary {
   fundId: string;
   fundName: string;
-  fundValue: number;
-  brokerageCash: number;
-  percentageOfClub: number;
+  fundValue?: number;
+  brokerageCash?: number;
+  percentageOfClub?: number;
   investmentStyle: string;
 }
 
@@ -116,56 +107,20 @@ export interface ClubDashboardData {
   recentActivity: RecentActivityItem[];
 }
 
-export interface ClubDashboardResponse {
-  isLoading: boolean;
-  error: string | null;
-  data: ClubDashboardData;
-}
-
-const MOCK_CLUB_DASHBOARD_DATA: ClubDashboardResponse = {
-  isLoading: false,
-  error: null,
-  data: {
-    clubId: 'club123',
-    clubName: 'Eagle Investors Club',
-    keyMetrics: {
-      totalClubValue: 125034.78,
-      valuationDate: '2024-07-28',
-      previousClubValue: 124500.00,
-      currentUnitValue: 12.5035,
-      totalUnitsOutstanding: 10000,
-      clubBankBalance: 25034.78,
-      totalBrokerageCash: 15000.00,
-      membersCount: 12,
-    },
-    performanceChartData: MOCK_PERFORMANCE_DATA_ALL_TIME,
-    isAdmin: true,
-    fundSummaries: [
-      {
-        fundId: 'fundA',
-        fundName: 'US Equities Fund',
-        fundValue: 75000,
-        brokerageCash: 5000,
-        percentageOfClub: 0.60,
-        investmentStyle: 'Focus on S&P 500 Index ETFs and large-cap stocks.'
-      },
-      {
-        fundId: 'fundB',
-        fundName: 'Global Growth Fund',
-        fundValue: 35000,
-        brokerageCash: 10000,
-        percentageOfClub: 0.28,
-        investmentStyle: 'Diversified international equities with high growth potential.'
-      },
-    ],
-    recentActivity: [
-      { id: 'act1', date: '2024-07-27', type: 'Deposit', member: 'John D.', description: 'Member Deposit', amount: 500, link: '/club/club123/members/mem123' },
-      { id: 'act2', date: '2024-07-26', type: 'Club Expense', description: 'Accounting Software Subscription', amount: -50, link: '/club/club123/accounting' },
-      { id: 'act3', date: '2024-07-25', type: 'Buy Stock', fund: 'US Equities Fund', description: 'Bought 10 shares of MSFT', amount: -3450, link: '/club/club123/brokerage-log/tx12345' },
-      { id: 'act4', date: '2024-07-24', type: 'Bank to Brokerage', description: 'Transfer to US Equities Fund', amount: -10000, link: '/club/club123/accounting' },
-    ],
-  },
+// Helper function to transform portfolio data into performance data points
+const transformPortfolioToPerformanceData = (portfolio: ClubPortfolioType): PerformanceDataPoint[] => {
+  // In a real implementation, this would use historical data from the API
+  // For now, we'll create a single data point from the current portfolio
+  return [
+    {
+      date: portfolio.valuation_date,
+      totalClubValue: portfolio.total_value
+    }
+  ];
 };
+
+// Helper function to create a recent activity item
+// This is used in the recentActivity useMemo hook
 
 const formatCurrency = (value?: number | null, withSign = false) => {
   if (value == null) return 'N/A';
@@ -244,25 +199,208 @@ const CustomTooltip = ({ active, payload, label }: TooltipProps) => {
 
 const ClubDashboardPage = () => {
   const { clubId } = useParams<{ clubId: string }>();
-  const { data: dashboardData, isLoading, error } = MOCK_CLUB_DASHBOARD_DATA;
+  const queryClient = useQueryClient();
   const [timeRange, setTimeRange] = useState('YTD');
   
   // Modal states for forms
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
   const [memberTxModalOpen, setMemberTxModalOpen] = useState(false);
   const [cashTransferModalOpen, setCashTransferModalOpen] = useState(false);
-  const [isRecalculating, setIsRecalculating] = useState(false);
+  
+  // Auth0 hook to get user info
+  const { user } = useAuth0();
+  
+  // React Query hooks
+  const {
+    isLoading: isLoadingClubDetails,
+    error: clubDetailsError
+  } = useClubDetails(clubId || '');
+  
+  const {
+    data: clubPortfolio,
+    isLoading: isLoadingPortfolio,
+    error: portfolioError
+  } = useClubPortfolio(clubId || '');
+  
+  const {
+    data: clubMembers,
+    isLoading: isLoadingMembers
+  } = useClubMembers(clubId || '');
+  
+  const {
+    data: actualFunds = [],
+    isLoading: isLoadingActualFunds,
+    error: actualFundsError
+  } = useClubFunds(clubId || '');
+  
+  const { data: rawRecentTransactions = [] } = useClubActivityFeed(clubId || '', 5);
+  
+  const {
+    mutate: calculateNav,
+    isPending: isRecalculating
+  } = useCalculateNav(clubId || '');
+  
+  const { mutate: recordDeposit } = useRecordMemberDeposit(clubId || '');
+  const { mutate: recordWithdrawal } = useRecordMemberWithdrawal(clubId || '');
+  const { mutate: recordCashTransfer } = useRecordCashTransfer(clubId || '');
+  const { mutate: recordExpense, isPending: isRecordingExpense } = useRecordClubExpense(clubId || '');
+  
+  // Combine loading states
+  const isLoading = isLoadingClubDetails || isLoadingPortfolio || isLoadingMembers || isLoadingActualFunds;
+  
+  // Combine error states
+  const error = clubDetailsError || portfolioError || actualFundsError;
 
+  // Move all useMemo hooks before any conditional returns
+  // Extract key metrics from portfolio data
+  const keyMetrics = useMemo(() => {
+    if (!clubPortfolio || !clubMembers) {
+      return {
+        totalClubValue: 0,
+        valuationDate: new Date().toISOString().split('T')[0],
+        previousClubValue: 0,
+        currentUnitValue: 0,
+        totalUnitsOutstanding: 0,
+        clubBankBalance: 0,
+        totalBrokerageCash: 0,
+        membersCount: 0
+      };
+    }
+    
+    // In a real implementation, we would get previous club value from historical data
+    // For now, we'll just use a slightly lower value
+    const previousClubValue = clubPortfolio.total_value * 0.995;
+    
+    // Calculate total units outstanding
+    const totalUnits = clubMembers.reduce((sum, member) => sum + (member.units || 0), 0);
+    
+    // Calculate unit value
+    const unitValue = totalUnits > 0 ? clubPortfolio.total_value / totalUnits : 0;
+    
+    // Calculate total brokerage cash from positions
+    const totalBrokerageCash = clubPortfolio.cash_balance;
+    
+    return {
+      totalClubValue: clubPortfolio.total_value,
+      valuationDate: clubPortfolio.valuation_date,
+      previousClubValue,
+      currentUnitValue: unitValue,
+      totalUnitsOutstanding: totalUnits,
+      clubBankBalance: 0, // This would come from a different API endpoint
+      totalBrokerageCash,
+      membersCount: clubMembers.length
+    };
+  }, [clubPortfolio, clubMembers]);
+  
+  // Extract fund summaries from actual funds data
+  const fundSummaries = useMemo(() => {
+    if (!actualFunds || actualFunds.length === 0) return [];
+    
+    return actualFunds
+      .filter(fund => fund.is_active)
+      .map(fund => ({
+        fundId: fund.id,
+        fundName: fund.name,
+        // For MVP, fundValue, brokerageCash, percentageOfClub will be undefined
+        // and rely on formatCurrency to show "N/A"
+        fundValue: undefined,
+        brokerageCash: undefined,
+        percentageOfClub: undefined,
+        investmentStyle: fund.description || 'No specific investment style described.'
+      }));
+  }, [actualFunds]);
+  
+  // Create recent activity items
+  const recentActivity = useMemo((): RecentActivityItem[] => {
+    // Ensure rawRecentTransactions is used from the useClubActivityFeed hook
+    if (!rawRecentTransactions || rawRecentTransactions.length === 0) {
+      return [];
+    }
+
+    return rawRecentTransactions.map((item: ActivityFeedItem): RecentActivityItem => {
+      let displayType = item.item_type; // Default to item_type
+      let description = item.description || '';
+      // Ensure amount is treated as a string before parseFloat, and default to '0' if null/undefined
+      const amount = parseFloat(item.amount?.toString() || '0');
+      let link = `/club/${clubId}/transactions`; // Generic link
+      const fundName = item.fund_name || 'Club Account';
+      const userName = item.user_name;
+
+      // Simplify the display type based on item_type
+      switch (item.item_type) {
+        case TransactionType.BUY_STOCK:
+          displayType = 'Buy Stock';
+          link = item.asset_symbol ? `/club/${clubId}/assets/${item.asset_symbol}` : link;
+          break;
+        case TransactionType.SELL_STOCK:
+          displayType = 'Sell Stock';
+          link = item.asset_symbol ? `/club/${clubId}/assets/${item.asset_symbol}` : link;
+          break;
+        case TransactionType.BUY_OPTION:
+          displayType = 'Buy Option';
+          link = item.asset_symbol ? `/club/${clubId}/assets/${item.asset_symbol}` : link;
+          break;
+        case TransactionType.SELL_OPTION:
+          displayType = 'Sell Option';
+          link = item.asset_symbol ? `/club/${clubId}/assets/${item.asset_symbol}` : link;
+          break;
+        case TransactionType.DIVIDEND:
+          displayType = 'Dividend';
+          link = item.asset_symbol ? `/club/${clubId}/assets/${item.asset_symbol}` : link;
+          break;
+        case TransactionType.BROKERAGE_INTEREST:
+          displayType = 'Brokerage Interest';
+          break;
+        case TransactionType.CLUB_EXPENSE:
+          displayType = 'Club Expense';
+          break;
+        case TransactionType.BANK_TO_BROKERAGE:
+          displayType = 'Transfer to Brokerage';
+          break;
+        case TransactionType.BROKERAGE_TO_BANK:
+          displayType = 'Transfer to Bank';
+          break;
+        case MemberTransactionType.DEPOSIT:
+          displayType = 'Member Deposit';
+          break;
+        case MemberTransactionType.WITHDRAWAL:
+          displayType = 'Member Withdrawal';
+          break;
+        default:
+          // Keep original description if present, otherwise use item_type
+          description = description || `Activity: ${item.item_type}`;
+      }
+
+      return {
+        id: item.id,
+        date: item.activity_date,
+        type: displayType,
+        description: description,
+        amount: amount,
+        link: link,
+        fund: fundName !== 'Club Account' ? fundName : undefined,
+        member: userName
+      };
+    });
+  }, [rawRecentTransactions, clubId]); // Ensure dependencies are rawRecentTransactions and clubId
+  
+  // Transform portfolio data into performance data points
+  const performanceData = useMemo(() => {
+    if (!clubPortfolio) return [];
+    return transformPortfolioToPerformanceData(clubPortfolio);
+  }, [clubPortfolio]);
+  
+  // Convert performance data to chart format
   const allChartData = useMemo(() => {
-    return dashboardData?.performanceChartData.map((d) => ({
+    return performanceData.map((d) => ({
       ...d,
       date: new Date(d.date).getTime(), // Convert to timestamp for easier filtering
     })).sort((a, b) => a.date - b.date) || []; // Ensure data is sorted by date
-  }, [dashboardData?.performanceChartData]);
+  }, [performanceData]);
 
   const filteredChartData = useMemo(() => {
     if (!allChartData.length) return [];
-    const now = new Date(dashboardData?.keyMetrics.valuationDate || Date.now()); // Use valuationDate as 'today' for consistency
+    const now = new Date(clubPortfolio?.valuation_date || Date.now()); // Use valuationDate as 'today' for consistency
     let startDate = new Date(allChartData[0].date); // Default to all data
 
     switch (timeRange) {
@@ -291,7 +429,7 @@ const ClubDashboardPage = () => {
     // Ensure the latest point (now) is included if it falls within the general range but might be missed by exact start date match
     return allChartData.filter((d) => d.date >= startTime && d.date <= now.getTime());
 
-  }, [allChartData, timeRange, dashboardData?.keyMetrics.valuationDate]);
+  }, [allChartData, timeRange, clubPortfolio?.valuation_date]);
 
   // Loading state
   if (isLoading) {
@@ -321,8 +459,17 @@ const ClubDashboardPage = () => {
     );
   }
 
+  // Determine if user is admin
+  const isAdmin = clubMembers?.some(member =>
+    member.user_id === user?.sub && member.role === 'ADMIN'
+  ) || false;
+  
+  // Calculate club value trend
+  const clubValueTrend = keyMetrics.totalClubValue > keyMetrics.previousClubValue ? 'up' :
+                         (keyMetrics.totalClubValue < keyMetrics.previousClubValue ? 'down' : 'neutral');
+
   // Error state
-  if (error || !dashboardData) {
+  if (error) {
     return (
       <div className="flex flex-col items-center justify-center p-8 bg-red-50 border border-red-200 rounded-lg">
         <div className="text-red-500 mb-4">
@@ -332,7 +479,7 @@ const ClubDashboardPage = () => {
         </div>
         <h3 className="text-lg font-semibold text-red-700 mb-2">Unable to Load Dashboard Data</h3>
         <p className="text-red-600 text-center mb-4">
-          {error || "There was a problem retrieving the club dashboard data. Please try again later."}
+          {"There was a problem retrieving the club dashboard data. Please try again later."}
         </p>
         <Button variant="outline" className="bg-white border-red-300 text-red-700 hover:bg-red-50">
           Retry
@@ -341,133 +488,153 @@ const ClubDashboardPage = () => {
     );
   }
 
-  // Ensure dashboardData is available before destructuring
-  if (!dashboardData) {
-    return null;
-  }
-
-  const { keyMetrics, isAdmin, fundSummaries, recentActivity } = dashboardData;
-  const clubValueTrend = keyMetrics.totalClubValue > keyMetrics.previousClubValue ? 'up' : (keyMetrics.totalClubValue < keyMetrics.previousClubValue ? 'down' : 'neutral');
-
+  // Time range buttons for chart
   const timeRangeButtons = [
     { label: '1M', value: '1M' }, { label: '3M', value: '3M' }, { label: '6M', value: '6M' },
     { label: 'YTD', value: 'YTD' }, { label: '1Y', value: '1Y' }, { label: 'All', value: 'All' },
   ];
 
+
   // Handler for recalculate button
-  async function handleRecalculate() {
+  function handleRecalculate() {
     if (!clubId) return;
     
-    setIsRecalculating(true);
     toast.info('Starting club valuation recalculation...');
     
-    try {
-      // In a real implementation, this would be an actual API call
-      // const apiClient = createApiClient(getAccessTokenSilently);
-      // await apiClient(`/api/v1/clubs/${clubId}/recalculate`, { method: 'POST' });
-      
-      // Simulate API call for mock data
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      toast.success('Club valuation recalculated successfully');
-      
-      // In a real implementation, refresh dashboard data
-      // const response = await apiClient(`/api/v1/clubs/${clubId}/dashboard`);
-      // const data = await response.json();
-      // setDashboardData(data);
-    } catch (error) {
-      console.error('Error recalculating club valuation:', error);
-      toast.error('Failed to recalculate club valuation');
-    } finally {
-      setIsRecalculating(false);
-    }
+    // Get today's date in YYYY-MM-DD format
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Call the mutation
+    calculateNav(today, {
+      onSuccess: () => {
+        toast.success('Club valuation recalculated successfully');
+      },
+      onError: (error) => {
+        console.error('Error recalculating club valuation:', error);
+        toast.error('Failed to recalculate club valuation');
+      }
+    });
   }
 
   // Handler for expense form submission
-  async function handleExpenseSubmit(formData: ClubExpenseFormData) {
-    try {
-      // In a real implementation, this would be an actual API call
-      // Example:
-      // const response = await fetch('/api/v1/transactions/club-expense', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(formData)
-      // });
-      
-      console.log('Submitting expense:', formData);
-      
-      // Simulate API call for mock data
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      toast.success('Club expense logged successfully');
-      setExpenseModalOpen(false);
-      
-      // In a real implementation, refresh dashboard data
-      // const dashboardResponse = await fetch(`/api/v1/clubs/${clubId}/dashboard`);
-      // const dashboardData = await dashboardResponse.json();
-      // setDashboardData(dashboardData);
-    } catch (error) {
-      console.error('Error logging club expense:', error);
-      throw error;
-    }
+  function handleExpenseSubmit(formData: ClubExpenseFormData) {
+    console.log('Submitting expense:', formData);
+    
+    // Create expense payload
+    const expensePayload = {
+      transaction_type: 'CLUB_EXPENSE',
+      transaction_date: formData.transaction_date,
+      total_amount: formData.total_amount,
+      fees_commissions: formData.fees_commissions || 0,
+      description: formData.description
+    };
+    
+    // Record the expense
+    recordExpense(expensePayload, {
+      onSuccess: () => {
+        toast.success('Club expense logged successfully');
+        setExpenseModalOpen(false);
+      },
+      onError: (error) => {
+        console.error('Error logging club expense:', error);
+        toast.error(`Failed to log club expense: ${error.message}`);
+      }
+    });
   }
 
   // Handler for member transaction form submission
-  async function handleMemberTxSubmit(formData: MemberTransactionFormData) {
-    try {
-      // In a real implementation, this would be an actual API call
-      // Example:
-      // const response = await fetch('/api/v1/transactions/member', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(formData)
-      // });
-      
-      console.log('Submitting member transaction:', formData);
-      
-      // Simulate API call for mock data
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      toast.success('Member transaction recorded successfully');
-      setMemberTxModalOpen(false);
-      
-      // In a real implementation, refresh dashboard data
-      // const dashboardResponse = await fetch(`/api/v1/clubs/${clubId}/dashboard`);
-      // const dashboardData = await dashboardResponse.json();
-      // setDashboardData(dashboardData);
-    } catch (error) {
-      console.error('Error recording member transaction:', error);
-      throw error;
+  function handleMemberTxSubmit(formData: MemberTransactionFormData) {
+    console.log('Submitting member transaction:', formData);
+    
+    // Determine if it's a deposit or withdrawal
+    if (formData.transaction_type === MemberTransactionType.DEPOSIT) {
+      recordDeposit({
+        user_id: formData.user_id,
+        amount: formData.amount,
+        transaction_date: formData.transaction_date,
+        notes: formData.notes
+      }, {
+        onSuccess: () => {
+          toast.success('Member deposit recorded successfully');
+          setMemberTxModalOpen(false);
+        },
+        onError: (error) => {
+          console.error('Error recording member deposit:', error);
+          toast.error('Failed to record member deposit');
+        }
+      });
+    } else {
+      recordWithdrawal({
+        user_id: formData.user_id,
+        amount: formData.amount,
+        transaction_date: formData.transaction_date,
+        notes: formData.notes
+      }, {
+        onSuccess: () => {
+          toast.success('Member withdrawal recorded successfully');
+          setMemberTxModalOpen(false);
+        },
+        onError: (error) => {
+          console.error('Error recording member withdrawal:', error);
+          toast.error('Failed to record member withdrawal');
+        }
+      });
     }
   }
 
+  // Define an interface for the cash transfer payload
+  interface CashTransferPayload {
+    transaction_type: string;
+    transaction_date: string;
+    total_amount: number;
+    fund_id?: string;
+    target_fund_id?: string;
+    notes?: string;
+  }
+
   // Handler for cash transfer form submission
-  async function handleCashTransferSubmit(formData: CashTransferFormData) {
-    try {
-      // In a real implementation, this would be an actual API call
-      // Example:
-      // const response = await fetch('/api/v1/transactions/cash-transfer', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(formData)
-      // });
-      
-      console.log('Submitting cash transfer:', formData);
-      
-      // Simulate API call for mock data
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      toast.success('Cash transfer logged successfully');
-      setCashTransferModalOpen(false);
-      
-      // In a real implementation, refresh dashboard data
-      // const dashboardResponse = await fetch(`/api/v1/clubs/${clubId}/dashboard`);
-      // const dashboardData = await dashboardResponse.json();
-      // setDashboardData(dashboardData);
-    } catch (error) {
-      console.error('Error logging cash transfer:', error);
-      throw error;
+  function handleCashTransferSubmit(formData: CashTransferFormData) {
+    console.log('Submitting cash transfer:', formData);
+    
+    // Create the payload for recordCashTransfer
+    const payload: CashTransferPayload = {
+      transaction_type: formData.transaction_type,
+      transaction_date: formData.transaction_date,
+      total_amount: formData.total_amount
+    };
+    
+    // Add optional fields only if they are defined
+    if (formData.fund_id !== undefined) {
+      payload.fund_id = formData.fund_id;
     }
+    
+    if (formData.target_fund_id !== undefined) {
+      payload.target_fund_id = formData.target_fund_id;
+    }
+    
+    if (formData.description !== undefined) {
+      payload.notes = formData.description; // Map description to notes
+    }
+    
+    recordCashTransfer(payload, {
+      onSuccess: () => {
+        toast.success('Cash transfer logged successfully!');
+        setCashTransferModalOpen(false);
+        // Invalidate queries that might be affected by this cash transfer
+        queryClient.invalidateQueries({ queryKey: ['clubs', clubId, 'portfolio'] });
+        queryClient.invalidateQueries({ queryKey: ['clubs', clubId, 'funds'] });
+        queryClient.invalidateQueries({ queryKey: ['clubRecentActivity', clubId] });
+      },
+      onError: (error) => {
+        console.error('Error logging cash transfer:', error);
+        // Handle error message extraction safely
+        let errorMessage = 'Failed to log cash transfer';
+        if (error instanceof Error) {
+          errorMessage = error.message || errorMessage;
+        }
+        toast.error(errorMessage);
+      }
+    });
   }
 
   return (
@@ -572,7 +739,7 @@ const ClubDashboardPage = () => {
                               <CardTitle className="text-md font-medium text-blue-600 hover:text-blue-700">{fund.fundName}</CardTitle>
                           </Link>
                           <span className="text-xs text-slate-500 font-medium tracking-wide whitespace-nowrap">
-                              {formatNumber(fund.percentageOfClub * 100)}% of Club
+                              {fund.percentageOfClub !== undefined ? `${formatNumber(fund.percentageOfClub * 100)}% of Club` : 'N/A'}
                           </span>
                       </div>
                       <CardDescription className="text-xs text-slate-500 line-clamp-2 pt-1">{fund.investmentStyle}</CardDescription>
@@ -657,27 +824,36 @@ const ClubDashboardPage = () => {
                       <li key={activity.id} className="p-4 hover:bg-slate-50/80 transition-colors">
                         <div className="flex items-start space-x-3">
                           <div className="flex-shrink-0 pt-0.5">
-                            {activity.type === 'Deposit' ? <ArrowUpCircle className="h-5 w-5 text-green-500" /> :
-                             activity.type === 'Withdrawal' || activity.amount < 0 ? <ArrowDownCircle className="h-5 w-5 text-red-500" /> :
-                             <Activity className="h-5 w-5 text-slate-500" />}
+                            {activity.type.includes('Deposit') || activity.type.includes('Dividend') || activity.type.includes('Interest') ?
+                              <ArrowUpCircle className="h-5 w-5 text-green-500" /> :
+                             activity.type.includes('Withdrawal') || activity.type.includes('Expense') || activity.amount < 0 ?
+                              <ArrowDownCircle className="h-5 w-5 text-red-500" /> :
+                              <Activity className="h-5 w-5 text-slate-500" />}
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex justify-between items-center">
                               <p className="text-sm font-medium text-slate-700 truncate">
-                                {activity.type.startsWith('Buy') || activity.type.startsWith('Sell') ? `${activity.type} (${activity.fund || 'N/A'})` : activity.type}
+                                {activity.type}
                               </p>
                               <p className="text-xs text-slate-500 whitespace-nowrap">{formatDate(activity.date)}</p>
                             </div>
-                            <Link to={activity.link || '#'} className="text-sm text-slate-500 hover:underline line-clamp-1">
-                              {activity.description}
-                              {activity.member && <span className="italic"> by {activity.member}</span>}
-                            </Link>
+                            <div className="text-sm text-slate-500 line-clamp-1">
+                              <Link to={activity.link || '#'} className="hover:underline">
+                                {activity.description}
+                              </Link>
+                              {activity.fund && <span className="text-xs text-slate-400 ml-1">• {activity.fund}</span>}
+                              {activity.member && <span className="text-xs text-slate-400 ml-1">• {activity.member}</span>}
+                            </div>
                           </div>
                           <p className={cn(
                             'text-sm font-semibold whitespace-nowrap',
-                            activity.amount >= 0 && (activity.type === 'Deposit' || activity.type === 'Interest') ? 'text-green-600' : 'text-slate-700'
+                            activity.amount >= 0 && (
+                              activity.type.includes('Deposit') ||
+                              activity.type.includes('Dividend') ||
+                              activity.type.includes('Interest')
+                            ) ? 'text-green-600' : 'text-slate-700'
                           )}>
-                            {formatCurrency(activity.amount, activity.type === 'Deposit' || activity.type === 'Interest')}
+                            {formatCurrency(activity.amount)}
                           </p>
                         </div>
                       </li>
@@ -707,8 +883,9 @@ const ClubDashboardPage = () => {
           {clubId && (
             <LogClubExpenseForm
               clubId={clubId || ''}
-              onSubmit={handleExpenseSubmit}
+              onSubmit={async (data) => handleExpenseSubmit(data)}
               onCancel={() => setExpenseModalOpen(false)}
+              isSubmitting={isRecordingExpense}
             />
           )}
         </DialogContent>
@@ -723,14 +900,13 @@ const ClubDashboardPage = () => {
           {clubId && (
             <RecordMemberTransactionForm
               clubId={clubId || ''}
-              members={[
-                { id: 'user1', name: 'John Doe' },
-                { id: 'user2', name: 'Jane Smith' },
-                { id: 'user3', name: 'Robert Johnson' }
-              ]} // Mock data for members
-              latestUnitValue={dashboardData?.keyMetrics.currentUnitValue}
-              latestValuationDate={dashboardData?.keyMetrics.valuationDate}
-              onSubmit={handleMemberTxSubmit}
+              members={clubMembers?.map(member => ({
+                id: member.user_id,
+                name: `${member.user?.first_name || ''} ${member.user?.last_name || ''}`
+              })) || []}
+              latestUnitValue={keyMetrics.currentUnitValue}
+              latestValuationDate={keyMetrics.valuationDate}
+              onSubmit={async (data) => handleMemberTxSubmit(data)}
               onCancel={() => setMemberTxModalOpen(false)}
             />
           )}
@@ -746,8 +922,8 @@ const ClubDashboardPage = () => {
           {clubId && (
             <LogCashTransferForm
               clubId={clubId || ''}
-              funds={dashboardData?.fundSummaries.map(fund => ({ id: fund.fundId, name: fund.fundName })) || []}
-              onSubmit={handleCashTransferSubmit}
+              funds={fundSummaries.map(fund => ({ id: fund.fundId, name: fund.fundName })) || []}
+              onSubmit={async (data) => handleCashTransferSubmit(data)}
               onCancel={() => setCashTransferModalOpen(false)}
             />
           )}

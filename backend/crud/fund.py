@@ -5,6 +5,7 @@ from typing import Sequence, Dict, Any # Import Dict, Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from backend.models import Fund
 # Import only schemas needed for update/read
@@ -55,12 +56,21 @@ async def get_fund_by_club_and_name(
 async def get_multi_funds(
     db: AsyncSession, *, skip: int = 0, limit: int = 100, club_id: uuid.UUID | None = None
 ) -> Sequence[Fund]:
-    """Gets multiple funds with pagination, optionally filtered by club."""
+    """
+    Gets multiple funds with pagination, optionally filtered by club.
+    Eagerly loads the club relationship to prevent lazy loading issues during serialization.
+    """
     stmt = select(Fund)
     if club_id:
         stmt = stmt.filter(Fund.club_id == club_id)
+    
+    # Eagerly load the club relationship to prevent MissingGreenlet errors
+    stmt = stmt.options(selectinload(Fund.club))
 
-    stmt = stmt.offset(skip).limit(limit).order_by(Fund.name, Fund.id)
+    stmt = stmt.offset(skip)
+    if limit > 0:  # Only apply limit if it's a positive number
+        stmt = stmt.limit(limit)
+    stmt = stmt.order_by(Fund.name, Fund.id)
     result = await db.execute(stmt)
     # Add unique() for safety
     return result.unique().scalars().all()

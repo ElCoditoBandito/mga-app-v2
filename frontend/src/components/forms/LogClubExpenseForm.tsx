@@ -21,19 +21,22 @@ interface LogClubExpenseFormProps {
   clubId: string;
   onSubmit: (data: ClubExpenseFormData) => Promise<void>;
   onCancel?: () => void;
+  isSubmitting?: boolean;
 }
 
 const LogClubExpenseForm: React.FC<LogClubExpenseFormProps> = ({
   clubId,
   onSubmit,
   onCancel,
+  isSubmitting: externalIsSubmitting,
 }) => {
   const [transactionDate, setTransactionDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [totalAmount, setTotalAmount] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [feesCommissions, setFeesCommissions] = useState<string>('0');
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [internalIsSubmitting, setInternalIsSubmitting] = useState(false);
+  const isSubmitting = externalIsSubmitting !== undefined ? externalIsSubmitting : internalIsSubmitting;
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -58,7 +61,7 @@ const LogClubExpenseForm: React.FC<LogClubExpenseFormProps> = ({
       fees_commissions: numFees,
     };
 
-    setIsSubmitting(true);
+    setInternalIsSubmitting(true);
     try {
       await onSubmit(formData);
       // Reset form on success
@@ -83,7 +86,7 @@ const LogClubExpenseForm: React.FC<LogClubExpenseFormProps> = ({
       
       setError(errorMessage);
     } finally {
-      setIsSubmitting(false);
+      setInternalIsSubmitting(false);
     }
   };
 

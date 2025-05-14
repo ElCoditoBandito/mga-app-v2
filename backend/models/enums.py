@@ -2,9 +2,9 @@
 import enum
 
 class ClubRole(str, enum.Enum):
-    ADMIN = "Admin"
-    MEMBER = "Member"
-    READ_ONLY = "ReadOnly"
+    Admin = "Admin"
+    Member = "Member"
+    ReadOnly = "ReadOnly"
 
 class AssetType(str, enum.Enum):
     STOCK = "Stock" # Includes ETFs for DB purposes

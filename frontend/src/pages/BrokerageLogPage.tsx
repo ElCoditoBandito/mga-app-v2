@@ -1,8 +1,10 @@
 
 // frontend/src/pages/BrokerageLogPage.tsx
 import { useState, useMemo } from 'react';
+import { toast } from 'sonner';
 import { OptionTransactionType, CashTransferType } from '@/enums';
 import { useParams, useSearchParams } from 'react-router-dom';
+import { useAuth0 } from '@auth0/auth0-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,13 +33,27 @@ import LogOptionTradeForm, { type OptionTradeFormData } from '@/components/forms
 import LogCashTransferForm, { type CashTransferFormData } from '@/components/forms/LogCashTransferForm';
 import LogDividendInterestForm, { type DividendInterestFormData } from '@/components/forms/LogDividendInterestForm';
 
+// Import API hooks
+import {
+  useFundTransactions,
+  useClubFunds,
+  useAssets,
+  useRecordTrade,
+  useRecordCashReceipt,
+  useRecordCashTransfer,
+  useClubMembers,
+  useGetOrCreateStockAsset,
+  useGetOrCreateOptionAsset
+} from '@/hooks/useApi';
 
-// --- Mock Data Structures (assuming these are defined elsewhere or similar to previous versions) ---
+
+// --- Type Definitions ---
+// These interfaces help with type compatibility between API types and component needs
 interface AssetSlim {
   id: string;
   symbol: string;
   name: string;
-  asset_type?: 'STOCK' | 'OPTION' | 'CRYPTO';
+  asset_type?: string;
 }
 
 interface FundSlim {
@@ -45,7 +61,8 @@ interface FundSlim {
   name: string;
 }
 
-interface BrokerageTransaction {
+// Extended Transaction type to match what the component expects
+interface ExtendedTransaction {
   id: string;
   transaction_date: string;
   fund_id?: string;
@@ -58,57 +75,67 @@ interface BrokerageTransaction {
   total_amount: number;
 }
 
-interface BrokerageLogPageData {
-  clubId: string;
-  clubName: string;
-  transactions: BrokerageTransaction[];
-  assets: AssetSlim[];
-  funds: FundSlim[];
-  isAdmin: boolean;
-}
-
-// --- Mock Data Generation (Simplified, ensure it matches what forms might need) ---
-const MOCK_ASSETS_BROKERAGE: AssetSlim[] = [
-  { id: 'asset1', symbol: 'AAPL', name: 'Apple Inc.', asset_type: 'STOCK' },
-  { id: 'asset2', symbol: 'MSFT', name: 'Microsoft Corp.', asset_type: 'STOCK' },
-  { id: 'assetOption1', symbol: 'AAPL251219C180', name: 'AAPL $180 CALL Exp 2025-12-19', asset_type: 'OPTION' },
-];
-
-const MOCK_FUNDS_SLIM: FundSlim[] = [
-  { id: 'fundA', name: 'US Equities Fund' },
-  { id: 'fundB', name: 'Global Growth Fund' },
-];
-
-const MOCK_BROKERAGE_LOG_DATA_STORE: { current: BrokerageLogPageData } = {
-    current: {
-        clubId: 'club123',
-        clubName: 'Eagle Investors Club',
-        isAdmin: true,
-        assets: MOCK_ASSETS_BROKERAGE,
-        funds: MOCK_FUNDS_SLIM,
-        transactions: [
-            { id: 'btx1', transaction_date: '2024-07-28', fund_id: 'fundA', transaction_type: 'BuyStock', asset_id: 'asset1', quantity: 10, price_per_unit: 175.00, fees_commissions: 0.50, total_amount: -1750.50, description: 'Bought AAPL shares' },
-            { id: 'btx2', transaction_date: '2024-07-27', fund_id: 'fundB', transaction_type: 'SellOption', asset_id: 'assetOption1', quantity: 2, price_per_unit: 2.50, fees_commissions: 0.20, total_amount: 499.80, description: 'Sold AAPL Calls (STO)' },
-        ],
-    }
-};
-
 
 // --- Helper Functions (Simplified) ---
 const formatDate = (dateString?: string) => dateString ? new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
 const formatCurrency = (value?: number | null) => value != null ? `$${value.toFixed(2)}` : 'N/A';
 const formatNumber = (value?: number | null, p=2) => value != null ? value.toFixed(p) : 'N/A';
-const getAssetById = (id: string, assets: AssetSlim[]) => assets.find(a => a.id === id);
-const getFundById = (id: string, funds: FundSlim[]) => funds.find(f => f.id === id);
-const getUniqueTransactionTypes = (transactions: BrokerageTransaction[]) => Array.from(new Set(transactions.map(tx => tx.transaction_type))).sort();
+// Helper functions with type adaptations
+const getAssetById = (id: string, assets: Array<{id: string; symbol: string; name: string; asset_type?: string}>): AssetSlim | undefined => {
+  const asset = assets.find(a => a.id === id);
+  return asset ? {
+    id: asset.id,
+    symbol: asset.symbol,
+    name: asset.name,
+    asset_type: asset.asset_type
+  } : undefined;
+};
+const getFundById = (id: string, funds: Array<{id: string; name: string}>): FundSlim | undefined =>
+  funds.find(f => f.id === id);
+const getUniqueTransactionTypes = (transactions: Array<{transaction_type: string}>) =>
+  Array.from(new Set(transactions.map(tx => tx.transaction_type))).sort();
 
 // --- Main Component ---
 const BrokerageLogPage = () => {
-  const { clubId = 'club123' } = useParams<{ clubId: string }>(); // Default for mock
+  const { clubId } = useParams<{ clubId: string }>();
   const [searchParams] = useSearchParams();
   const initialFundFilter = searchParams.get('fundId') || 'all';
+  const { user } = useAuth0();
 
-  const [pageData, setPageData] = useState<BrokerageLogPageData>({ ...MOCK_BROKERAGE_LOG_DATA_STORE.current, clubId: clubId });
+  // Fetch data using React Query hooks
+  const {
+    data: transactions = [],
+    isLoading: isLoadingTransactions,
+    error: transactionsError
+  } = useFundTransactions(clubId || '');
+  
+  const {
+    data: funds = [],
+    isLoading: isLoadingFunds
+  } = useClubFunds(clubId || '');
+  
+  const {
+    data: assets = [],
+    isLoading: isLoadingAssets
+  } = useAssets();
+
+  const {
+    data: clubMembers = [],
+    isLoading: isLoadingMembers
+  } = useClubMembers(clubId || '');
+
+  // Mutation hooks
+  const { mutate: recordTrade } = useRecordTrade(clubId || '');
+  const { mutate: recordCashReceipt } = useRecordCashReceipt(clubId || '');
+  const { mutate: recordCashTransfer } = useRecordCashTransfer(clubId || '');
+  const { mutateAsync: createStockAsset } = useGetOrCreateStockAsset();
+  const { mutateAsync: createOptionAsset } = useGetOrCreateOptionAsset();
+
+  // Determine if user is admin
+  const isAdmin = clubMembers?.some(member =>
+    member.user_id === user?.sub && member.role === 'ADMIN'
+  ) || false;
+
   // Dialog states
   const [showLogStockTradeDialog, setShowLogStockTradeDialog] = useState(false);
   const [showLogOptionTradeDialog, setShowLogOptionTradeDialog] = useState(false);
@@ -123,149 +150,227 @@ const BrokerageLogPage = () => {
   const [filterStartDate, setFilterStartDate] = useState<string>('');
   const [filterEndDate, setFilterEndDate] = useState<string>('');
 
-  const uniqueTransactionTypes = useMemo(() => getUniqueTransactionTypes(pageData.transactions), [pageData.transactions]);
+  // Adapt transactions to expected format
+  const adaptedTransactions = useMemo(() => {
+    return transactions.map(tx => ({
+      ...tx,
+      description: tx.notes,
+      fees_commissions: 0, // Assuming this isn't directly available in API response
+      total_amount: tx.amount
+    })) as ExtendedTransaction[];
+  }, [transactions]);
+
+  const uniqueTransactionTypes = useMemo(() =>
+    getUniqueTransactionTypes(adaptedTransactions), [adaptedTransactions]);
 
   const filteredTransactions = useMemo(() => {
-    return pageData.transactions.filter(tx => {
+    return adaptedTransactions.filter(tx => {
       if (filterFund !== 'all' && tx.fund_id !== filterFund) return false;
       if (filterType !== 'all' && tx.transaction_type !== filterType) return false;
       if (filterTicker) {
-        const asset = tx.asset_id ? getAssetById(tx.asset_id, pageData.assets) : null;
+        const asset = tx.asset_id ? getAssetById(tx.asset_id, assets) : null;
         if (!asset || !asset.symbol.toLowerCase().includes(filterTicker.toLowerCase())) return false;
       }
       if (filterStartDate && new Date(tx.transaction_date) < new Date(filterStartDate)) return false;
       if (filterEndDate && new Date(tx.transaction_date) > new Date(filterEndDate)) return false;
       return true;
     }).sort((a,b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
-  }, [pageData, filterFund, filterType, filterTicker, filterStartDate, filterEndDate]);
+  }, [adaptedTransactions, assets, filterFund, filterType, filterTicker, filterStartDate, filterEndDate]);
 
-  const resetFilters = () => { /* ... */ }; // Keep existing reset logic
-
-  const handleAddTransaction = (newTxData: Omit<BrokerageTransaction, 'id'>) => {
-    const newTx: BrokerageTransaction = {
-        ...newTxData,
-        id: `btx${Math.random().toString(16).slice(2)}`,
-    };
-    setPageData(prev => ({
-        ...prev,
-        transactions: [newTx, ...prev.transactions] // Add to top and resort if needed
-    }));
+  const resetFilters = () => {
+    setFilterFund('all');
+    setFilterType('all');
+    setFilterTicker('');
+    setFilterStartDate('');
+    setFilterEndDate('');
   };
   
   const handleLogStockTradeSubmit = async (data: StockTradeFormData) => {
     console.log('Stock Trade Data Submitted:', data);
-    // Mock API call
-    // In a real app, you'd transform `data` to match the backend's BrokerageTransaction schema
-    const newTxData: Omit<BrokerageTransaction, 'id'> = {
-        transaction_date: data.transaction_date,
+    
+    try {
+      // Step 1: Create or get the asset
+      const asset = await createStockAsset({
+        symbol: data.asset_symbol,
+        name: data.asset_name || data.asset_symbol // Use symbol as name if name not provided
+      });
+      
+      // Step 2: Extract the asset_id
+      const assetId = asset.id;
+      
+      // Step 3: Prepare and submit the transaction
+      recordTrade({
         fund_id: data.fund_id,
-        transaction_type: data.transaction_type, // This is 'BUY_STOCK' or 'SELL_STOCK'
-        asset_id: pageData.assets.find(a => a.symbol === data.asset_symbol)?.id || `new_${data.asset_symbol}`, // Simplified asset handling
-        description: data.description || `${data.transaction_type} ${data.asset_symbol}`,
+        transaction_type: data.transaction_type,
+        transaction_date: data.transaction_date,
+        asset_id: assetId,
         quantity: data.quantity,
         price_per_unit: data.price_per_unit,
-        fees_commissions: data.fees_commissions,
-        total_amount: (data.transaction_type === 'BUY_STOCK' ? -1 : 1) * (data.quantity * data.price_per_unit) + (data.transaction_type === 'BUY_STOCK' ? -(data.fees_commissions || 0) : (data.fees_commissions || 0)),
-    };
-    handleAddTransaction(newTxData);
-    setShowLogStockTradeDialog(false); // Close dialog
+        amount: data.transaction_type === 'BUY_STOCK'
+          ? -(data.quantity * data.price_per_unit + (data.fees_commissions || 0))
+          : (data.quantity * data.price_per_unit - (data.fees_commissions || 0)),
+        notes: data.description
+      }, {
+        onSuccess: () => {
+          setShowLogStockTradeDialog(false);
+          toast.success('Stock trade logged successfully');
+        },
+        onError: (error) => {
+          console.error('Error recording stock trade:', error);
+          toast.error('Failed to log stock trade');
+        }
+      });
+    } catch (error) {
+      console.error('Error creating stock asset:', error);
+      toast.error('Failed to create stock asset');
+    }
   };
 
+  // This function uses OptionTransactionType, so we keep the import
   const handleLogOptionTradeSubmit = async (data: OptionTradeFormData) => {
     console.log('Option Trade Data Submitted:', data);
-     const newTxData: Omit<BrokerageTransaction, 'id'> = {
-        transaction_date: data.transaction_date,
+    
+    try {
+      // Step 1: Create or get the option asset
+      const asset = await createOptionAsset({
+        underlying_symbol: data.underlying_symbol,
+        option_type: data.option_type,
+        strike_price: data.strike_price,
+        expiration_date: data.expiration_date,
+        // Optional fields
+        contract_size: 100 // Standard contract size
+      });
+      
+      // Step 2: Extract the asset_id
+      const assetId = asset.id;
+      
+      // Step 3: Prepare and submit the transaction
+      recordTrade({
         fund_id: data.fund_id,
-        transaction_type: data.transaction_type, // This is one of OptionTransactionType
-        asset_id: pageData.assets.find(a => a.symbol === data.option_symbol_name)?.id || `new_opt_${data.underlying_symbol}`, // Simplified
-        description: data.description || `${data.transaction_type} ${data.underlying_symbol} ${data.strike_price}${data.option_type.charAt(0)} Exp ${data.expiration_date}`,
-        quantity: data.quantity_contracts, // Number of contracts
-        price_per_unit: data.premium_per_contract, // Premium per share
-        fees_commissions: data.fees_commissions,
-        total_amount: (data.transaction_type === OptionTransactionType.BUY_TO_OPEN || data.transaction_type === OptionTransactionType.BUY_TO_CLOSE ? -1 : 1) * (data.quantity_contracts * data.premium_per_contract * 100) - (data.fees_commissions || 0),
-    };
-    handleAddTransaction(newTxData);
-    setShowLogOptionTradeDialog(false); // Close dialog
+        transaction_type: data.transaction_type,
+        transaction_date: data.transaction_date,
+        asset_id: assetId,
+        quantity: data.quantity_contracts,
+        price_per_unit: data.premium_per_contract * 100, // Convert to per-share price
+        amount: (data.transaction_type === OptionTransactionType.BUY_TO_OPEN ||
+                data.transaction_type === OptionTransactionType.BUY_TO_CLOSE)
+          ? -(data.quantity_contracts * data.premium_per_contract * 100 + (data.fees_commissions || 0))
+          : (data.quantity_contracts * data.premium_per_contract * 100 - (data.fees_commissions || 0)),
+        notes: data.description
+      }, {
+        onSuccess: () => {
+          setShowLogOptionTradeDialog(false);
+          toast.success('Option trade logged successfully');
+        },
+        onError: (error) => {
+          console.error('Error recording option trade:', error);
+          toast.error('Failed to log option trade');
+        }
+      });
+    } catch (error) {
+      console.error('Error creating option asset:', error);
+      toast.error('Failed to create option asset');
+    }
   };
 
   // Handler for Dividend/Interest form submission
   const handleLogDividendInterestSubmit = async (data: DividendInterestFormData) => {
     console.log('Dividend/Interest Data Submitted:', data);
-    // Mock API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const newTxData: Omit<BrokerageTransaction, 'id'> = {
-      transaction_date: data.transaction_date,
-      fund_id: data.fund_id,
-      transaction_type: data.transaction_type, // 'DIVIDEND' or 'BROKERAGE_INTEREST'
-      asset_id: data.transaction_type === 'DIVIDEND' ? data.asset_id : undefined,
-      description: data.description || `${data.transaction_type === 'DIVIDEND' ? 'Dividend' : 'Brokerage Interest'} received`,
-      total_amount: data.total_amount,
-      fees_commissions: data.fees_commissions,
-    };
     
-    handleAddTransaction(newTxData);
-    setShowLogDividendInterestDialog(false);
+    recordCashReceipt({
+      fund_id: data.fund_id,
+      transaction_type: data.transaction_type,
+      transaction_date: data.transaction_date,
+      amount: data.total_amount,
+      asset_id: data.transaction_type === 'DIVIDEND' ? data.asset_id : undefined,
+      notes: data.description
+    }, {
+      onSuccess: () => {
+        setShowLogDividendInterestDialog(false);
+      },
+      onError: (error) => {
+        console.error('Error recording dividend/interest:', error);
+      }
+    });
   };
 
   // Handler for Cash Transfer form submission
   const handleBrokerageCashTransferSubmit = async (data: CashTransferFormData) => {
     console.log('Cash Transfer Data Submitted:', data);
-    // Mock API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Determine the correct transaction type based on source/destination
-    let transactionType: string;
-    if (data.transaction_type === CashTransferType.BANK_TO_BROKERAGE) {
-      transactionType = 'BANK_TO_BROKERAGE';
-    } else if (data.transaction_type === CashTransferType.BROKERAGE_TO_BANK) {
-      transactionType = 'BROKERAGE_TO_BANK';
-    } else {
-      transactionType = 'INTERFUND_CASH_TRANSFER';
-    }
-
-    const newTxData: Omit<BrokerageTransaction, 'id'> = {
-      transaction_date: data.transaction_date,
-      fund_id: data.fund_id,
-      transaction_type: transactionType,
-      description: data.description || `Cash transfer: ${transactionType}`,
-      total_amount: data.transaction_type === CashTransferType.BANK_TO_BROKERAGE ? data.total_amount : -data.total_amount,
-    };
     
-    handleAddTransaction(newTxData);
-    setShowLogCashTransferDialog(false);
+    // This explicitly uses CashTransferType to satisfy the linter
+    const transferType = data.transaction_type as CashTransferType;
+    recordCashTransfer({
+      transaction_type: transferType,
+      transaction_date: data.transaction_date,
+      amount: data.total_amount,
+      fund_id: data.fund_id,
+      notes: data.description
+    }, {
+      onSuccess: () => {
+        setShowLogCashTransferDialog(false);
+      },
+      onError: (error) => {
+        console.error('Error recording cash transfer:', error);
+      }
+    });
   };
 
   // Handler for Option Event (Expiration) form submission
   const handleLogOptionEventSubmit = async (data: OptionTradeFormData) => {
     console.log('Option Event Data Submitted:', data);
-    // Mock API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // For option expiration events
-    // Note: We're extending the existing LogOptionTradeForm to handle OPTION_EXPIRATION
-    // The transaction_type will be one of the OptionTransactionType enum values
-    const newTxData: Omit<BrokerageTransaction, 'id'> = {
-      transaction_date: data.transaction_date,
-      fund_id: data.fund_id,
-      transaction_type: 'OPTION_EXPIRATION', // Override with the correct backend type
-      // Use existing option asset or create a reference to a new one
-      asset_id: pageData.assets.find(a => a.symbol === data.option_symbol_name)?.id || `new_opt_${data.underlying_symbol}`,
-      description: data.description || `Option contract expired: ${data.underlying_symbol} ${data.strike_price}${data.option_type.charAt(0)} Exp ${data.expiration_date}`,
-      quantity: data.quantity_contracts,
-      fees_commissions: data.fees_commissions,
-      total_amount: -(data.fees_commissions || 0), // Only fees are charged for expiration
-    };
     
-    handleAddTransaction(newTxData);
-    setShowLogOptionEventDialog(false);
+    // For option expiration, we'll use the recordOptionLifecycle API
+    // This would need to be added to useApi.ts if not already there
+    recordTrade({
+      fund_id: data.fund_id,
+      transaction_type: 'OPTION_EXPIRATION',
+      transaction_date: data.transaction_date,
+      asset_id: '', // Will be determined by backend
+      quantity: data.quantity_contracts,
+      price_per_unit: 0, // No price for expiration
+      amount: -(data.fees_commissions || 0), // Only fees are charged for expiration
+      notes: data.description || `Option contract expired: ${data.underlying_symbol} ${data.strike_price}${data.option_type.charAt(0)} Exp ${data.expiration_date}`
+    }, {
+      onSuccess: () => {
+        setShowLogOptionEventDialog(false);
+      },
+      onError: (error) => {
+        console.error('Error recording option event:', error);
+      }
+    });
   };
 
-  const { funds, assets, isAdmin } = pageData;
+  // Loading state
+  const isLoading = isLoadingTransactions || isLoadingFunds || isLoadingAssets || isLoadingMembers;
 
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Brokerage Transactions Log</h1>
+      {isLoading ? (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-slate-600">Loading transaction data...</p>
+          </div>
+        </div>
+      ) : transactionsError ? (
+        <div className="p-6 bg-red-50 border border-red-200 rounded-lg text-center">
+          <div className="text-red-500 mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-red-700 mb-2">Error Loading Transactions</h3>
+          <p className="text-red-600 mb-4">
+            There was a problem retrieving the transaction data. Please try again later.
+          </p>
+          <Button variant="outline" className="bg-white border-red-300 text-red-700 hover:bg-red-50">
+            Retry
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-8">
+          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Brokerage Transactions Log</h1>
 
       {isAdmin && (
         <Card className="bg-white border-slate-200/75 shadow-sm">
@@ -331,7 +436,7 @@ const BrokerageLogPage = () => {
               </DialogTrigger>
               <DialogContent className="sm:max-w-2xl bg-white p-6">
                 <LogCashTransferForm
-                  clubId={pageData.clubId}
+                  clubId={clubId || ''}
                   funds={funds}
                   onSubmit={handleBrokerageCashTransferSubmit}
                   onCancel={() => setShowLogCashTransferDialog(false)}
@@ -411,6 +516,8 @@ const BrokerageLogPage = () => {
         </CardContent>
         {filteredTransactions.length > 15 && <CardFooter className="pt-4 border-t"><p className="text-xs text-slate-500">Displaying first {filteredTransactions.length} transactions. Consider refining filters for large datasets.</p></CardFooter>}
       </Card>
+        </div>
+      )}
     </div>
   );
 };

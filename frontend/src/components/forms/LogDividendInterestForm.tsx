@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { AlertCircle } from 'lucide-react';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { TransactionType } from '@/enums';
 
 // --- Data Structures ---
 interface FundSlim {
@@ -23,7 +24,7 @@ interface AssetSlim {
 }
 
 export interface DividendInterestFormData {
-  transaction_type: 'DIVIDEND' | 'BROKERAGE_INTEREST';
+  transaction_type: string; // Using TransactionType.DIVIDEND or TransactionType.BROKERAGE_INTEREST
   transaction_date: string; // ISO format
   fund_id: string;
   asset_id?: string; // Required for DIVIDEND, null for BROKERAGE_INTEREST
@@ -45,7 +46,7 @@ const LogDividendInterestForm: React.FC<LogDividendInterestFormProps> = ({
   onSubmit,
   onCancel,
 }) => {
-  const [transactionType, setTransactionType] = useState<'DIVIDEND' | 'BROKERAGE_INTEREST'>('DIVIDEND');
+  const [transactionType, setTransactionType] = useState<string>(TransactionType.DIVIDEND);
   const [transactionDate, setTransactionDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [fundId, setFundId] = useState<string>(funds.length > 0 ? funds[0].id : '');
   const [assetId, setAssetId] = useState<string>('');
@@ -61,9 +62,9 @@ const LogDividendInterestForm: React.FC<LogDividendInterestFormProps> = ({
 
   // Reset asset selection when transaction type changes
   useEffect(() => {
-    if (transactionType === 'BROKERAGE_INTEREST') {
+    if (transactionType === TransactionType.BROKERAGE_INTEREST) {
       setAssetId('');
-    } else if (transactionType === 'DIVIDEND' && stockAssets.length > 0 && !assetId) {
+    } else if (transactionType === TransactionType.DIVIDEND && stockAssets.length > 0 && !assetId) {
       setAssetId(stockAssets[0].id);
     }
   }, [transactionType, stockAssets, assetId]);
@@ -78,7 +79,7 @@ const LogDividendInterestForm: React.FC<LogDividendInterestFormProps> = ({
     // Validation
     if (!fundId) { setError('Fund assignment is required.'); return; }
     if (isNaN(numTotalAmount) || numTotalAmount <= 0) { setError('Valid positive amount is required.'); return; }
-    if (transactionType === 'DIVIDEND' && !assetId) { setError('Asset selection is required for dividends.'); return; }
+    if (transactionType === TransactionType.DIVIDEND && !assetId) { setError('Asset selection is required for dividends.'); return; }
     if (isNaN(numFeesCommissions) || numFeesCommissions < 0) { setError('Fees/Commissions cannot be negative.'); return; }
 
     const formData: DividendInterestFormData = {
@@ -91,7 +92,7 @@ const LogDividendInterestForm: React.FC<LogDividendInterestFormProps> = ({
     };
 
     // Only include asset_id for DIVIDEND type
-    if (transactionType === 'DIVIDEND') {
+    if (transactionType === TransactionType.DIVIDEND) {
       formData.asset_id = assetId;
     }
 
@@ -99,7 +100,7 @@ const LogDividendInterestForm: React.FC<LogDividendInterestFormProps> = ({
     try {
       await onSubmit(formData);
       // Reset form
-      setTransactionType('DIVIDEND');
+      setTransactionType(TransactionType.DIVIDEND);
       setTransactionDate(new Date().toISOString().split('T')[0]);
       setFundId(funds.length > 0 ? funds[0].id : '');
       setAssetId(stockAssets.length > 0 ? stockAssets[0].id : '');
@@ -135,17 +136,17 @@ const LogDividendInterestForm: React.FC<LogDividendInterestFormProps> = ({
           <Label className="font-medium text-slate-700">Transaction Type <span className="text-red-500">*</span></Label>
           <RadioGroup
             value={transactionType}
-            onValueChange={(value: 'DIVIDEND' | 'BROKERAGE_INTEREST') => setTransactionType(value)}
+            onValueChange={(value: string) => setTransactionType(value)}
             className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2"
           >
             <div className="flex items-center space-x-2">
-              <RadioGroupItem value="DIVIDEND" id="DIVIDEND" />
+              <RadioGroupItem value={TransactionType.DIVIDEND} id="DIVIDEND" />
               <Label htmlFor="DIVIDEND" className="font-normal text-slate-700 cursor-pointer">
                 Dividend
               </Label>
             </div>
             <div className="flex items-center space-x-2">
-              <RadioGroupItem value="BROKERAGE_INTEREST" id="BROKERAGE_INTEREST" />
+              <RadioGroupItem value={TransactionType.BROKERAGE_INTEREST} id="BROKERAGE_INTEREST" />
               <Label htmlFor="BROKERAGE_INTEREST" className="font-normal text-slate-700 cursor-pointer">
                 Brokerage Interest
               </Label>
@@ -182,7 +183,7 @@ const LogDividendInterestForm: React.FC<LogDividendInterestFormProps> = ({
         </div>
 
         {/* Asset Selection - Only for Dividend */}
-        {transactionType === 'DIVIDEND' && (
+        {transactionType === TransactionType.DIVIDEND && (
           <div>
             <Label htmlFor="assetId" className="font-medium text-slate-700">Stock/ETF <span className="text-red-500">*</span></Label>
             <Select value={assetId} onValueChange={setAssetId} required>
@@ -213,7 +214,7 @@ const LogDividendInterestForm: React.FC<LogDividendInterestFormProps> = ({
             className="mt-1" 
           />
           <p className="text-xs text-slate-500 mt-0.5">
-            {transactionType === 'DIVIDEND' ? 'Gross dividend amount received' : 'Interest earned on brokerage cash'}
+            {transactionType === TransactionType.DIVIDEND ? 'Gross dividend amount received' : 'Interest earned on brokerage cash'}
           </p>
         </div>
 

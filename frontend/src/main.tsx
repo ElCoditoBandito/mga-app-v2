@@ -4,7 +4,8 @@ import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import { BrowserRouter } from 'react-router-dom';
-import { Auth0ProviderWithNavigate } from './components/auth/Auth0ProviderWithNavigate'; // Import the new component
+import { Auth0ProviderWithNavigate } from './components/auth/Auth0ProviderWithNavigate';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Env var checks are now primarily within Auth0ProviderWithNavigate,
 // but a top-level check here before rendering is still good practice.
@@ -35,11 +36,24 @@ if (!rootElement) {
   throw new Error("Failed to find the root element. Please check your index.html file.");
 }
 
+// Create a client
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutes
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <BrowserRouter>
-      <Auth0ProviderWithNavigate> {/* Use the imported component */}
-        <App />
+      <Auth0ProviderWithNavigate>
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
       </Auth0ProviderWithNavigate>
     </BrowserRouter>
   </React.StrictMode>,

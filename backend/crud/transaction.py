@@ -70,19 +70,9 @@ async def get_multi_transactions(
     """
     stmt = select(Transaction)
 
-    # Join with Fund if filtering by club_id is necessary
-    needs_fund_join = False
-    if club_id:
-        needs_fund_join = True
-
-    if needs_fund_join:
-        # Join Transaction -> Fund
-        # Use isouter=False (default) to only include transactions linked to a fund.
-        stmt = stmt.join(Fund, Transaction.fund_id == Fund.id)
-
     # Add filters
     if club_id:
-        stmt = stmt.filter(Fund.club_id == club_id) # Filter on the joined Fund table
+        stmt = stmt.filter(Transaction.club_id == club_id) # Filter directly on Transaction table
 
     if fund_id:
         stmt = stmt.filter(Transaction.fund_id == fund_id)

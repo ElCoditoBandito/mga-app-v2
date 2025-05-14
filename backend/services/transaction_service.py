@@ -30,6 +30,7 @@ from backend.schemas import ( # Added TransactionCreateCashTransfer, Transaction
     TransactionCreateDividendBrokerageInterest,
     TransactionCreateCashTransfer,
     TransactionCreateOptionLifecycle,
+    TransactionCreateClubExpense,
 ) # [cite: backend_files/schemas/transaction.py]
 
 # Configure logging for this module
@@ -199,6 +200,7 @@ async def process_trade_transaction(
 
     # --- 4. Create Transaction Record ---
     transaction_data = {
+        "club_id": fund.club_id,
         "fund_id": fund_id,
         "asset_id": asset.id, # [cite: backend_files/models/asset.py]
         "transaction_type": trade_type,
@@ -301,6 +303,7 @@ async def process_cash_receipt_transaction(
     net_cash_effect = amount - fees # Subtract fees if any apply
 
     transaction_data = {
+        "club_id": fund.club_id,
         "fund_id": fund_id,
         "asset_id": asset_id, # Will be None for Brokerage Interest
         "transaction_type": tx_type,
@@ -387,30 +390,49 @@ async def process_cash_transfer_transaction(
                 if not target_fund: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Target fund {split.fund_id} for split not found.")
                 if target_fund.club_id != club_id: raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Target fund {target_fund.id} does not belong to club {club_id}.")
                 current_fees = fees if not fee_applied else Decimal("0.0")
-                transfer_tx_data = {"fund_id": target_fund.id, "asset_id": None, "transaction_type": TransactionType.BANK_TO_BROKERAGE, "transaction_date": transfer_in.transaction_date, "quantity": None, "price_per_unit": None, "total_amount": split_amount, "fees_commissions": current_fees, "description": transfer_in.description or f"Transfer to {target_fund.name} based on fund split ({split.split_percentage*100:.2f}%)"}
+                transfer_tx_data = {"club_id": club_id, "fund_id": target_fund.id, "asset_id": None, "transaction_type": TransactionType.BANK_TO_BROKERAGE, "transaction_date": transfer_in.transaction_date, "quantity": None, "price_per_unit": None, "total_amount": split_amount, "fees_commissions": current_fees, "description": transfer_in.description or f"Transfer to {target_fund.name} based on fund split ({split.split_percentage*100:.2f}%)"}
                 created_tx = await crud_transaction.create_transaction(db=db, transaction_data=transfer_tx_data) # [cite: backend_files/crud/transaction.py]
                 created_transactions.append(created_tx)
                 if fees > 0: fee_applied = True
                 target_fund.brokerage_cash_balance += split_amount; db.add(target_fund); log.info(f"Created BANK_TO_BROKERAGE tx {created_tx.id}, increased fund {target_fund.id} brokerage by {split_amount}")
             remainder = amount - distributed_amount_total
             if remainder > Decimal("0.00"): log.warning(f"Transfer amount {amount} was not fully distributed due to splits < 100% or rounding. Remainder: {remainder}. Leaving remainder in bank account."); club.bank_account_balance += remainder; db.add(club); log.info(f"Adjusted club bank balance by {remainder} due to undistributed amount.")
-            await db.flush(); return created_transactions
+            await db.flush()
+            
+            # Eagerly load relationships to prevent MissingGreenlet errors during serialization
+            for tx in created_transactions:
+                await db.refresh(tx, ['fund', 'asset'])
+                log.info(f"Refreshed transaction {tx.id} with fund and asset relationships")
+                
+            return created_transactions
         elif tx_type == TransactionType.BROKERAGE_TO_BANK:
             fund_id = transfer_in.fund_id; source_fund = await crud_fund.get_fund(db=db, fund_id=fund_id);
             if not source_fund: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Source fund {fund_id} not found.")
-            transaction_data = {"fund_id": fund_id, "asset_id": None, "transaction_type": tx_type, "transaction_date": transfer_in.transaction_date, "quantity": None, "price_per_unit": None, "total_amount": amount, "fees_commissions": fees, "description": transfer_in.description}
+            transaction_data = {"club_id": club_id, "fund_id": fund_id, "asset_id": None, "transaction_type": tx_type, "transaction_date": transfer_in.transaction_date, "quantity": None, "price_per_unit": None, "total_amount": amount, "fees_commissions": fees, "description": transfer_in.description}
             created_transaction = await crud_transaction.create_transaction(db=db, transaction_data=transaction_data)
             source_fund.brokerage_cash_balance -= total_deduction; club.bank_account_balance += amount; db.add(source_fund); db.add(club); log.info(f"Decreased fund {source_fund.id} brokerage by {total_deduction}, increased club {club_id} bank by {amount}")
-            await db.flush(); return created_transaction
+            await db.flush()
+            
+            # Eagerly load relationships to prevent MissingGreenlet errors during serialization
+            await db.refresh(created_transaction, ['fund', 'asset'])
+            log.info(f"Refreshed transaction {created_transaction.id} with fund and asset relationships")
+            
+            return created_transaction
         elif tx_type == TransactionType.INTERFUND_CASH_TRANSFER:
             fund_id = transfer_in.fund_id; target_fund_id = transfer_in.target_fund_id
             if not target_fund_id: raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Target fund_id is required.")
             source_fund = await crud_fund.get_fund(db=db, fund_id=fund_id); target_fund = await crud_fund.get_fund(db=db, fund_id=target_fund_id)
             if not source_fund or not target_fund: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source or target fund not found.")
-            transaction_data = {"fund_id": fund_id, "asset_id": None, "transaction_type": tx_type, "transaction_date": transfer_in.transaction_date, "quantity": None, "price_per_unit": None, "total_amount": amount, "fees_commissions": fees, "description": transfer_in.description or f"Transfer to fund {target_fund.name}"}
+            transaction_data = {"club_id": club_id, "fund_id": fund_id, "asset_id": None, "transaction_type": tx_type, "transaction_date": transfer_in.transaction_date, "quantity": None, "price_per_unit": None, "total_amount": amount, "fees_commissions": fees, "description": transfer_in.description or f"Transfer to fund {target_fund.name}"}
             created_transaction = await crud_transaction.create_transaction(db=db, transaction_data=transaction_data)
             source_fund.brokerage_cash_balance -= total_deduction; target_fund.brokerage_cash_balance += amount; db.add(source_fund); db.add(target_fund); log.info(f"Decreased fund {source_fund.id} brokerage by {total_deduction}, increased fund {target_fund.id} brokerage by {amount}")
-            await db.flush(); return created_transaction
+            await db.flush()
+            
+            # Eagerly load relationships to prevent MissingGreenlet errors during serialization
+            await db.refresh(created_transaction, ['fund', 'asset'])
+            log.info(f"Refreshed transaction {created_transaction.id} with fund and asset relationships")
+            
+            return created_transaction
     except IntegrityError as e: log.exception(f"Database integrity error during cash transfer processing for club {club_id}: {e}"); await db.rollback(); raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Database conflict processing cash transfer: {e}")
     except HTTPException as e: await db.rollback(); raise e
     except Exception as e: log.exception(f"Unexpected error processing cash transfer for club {club_id}: {e}"); await db.rollback(); raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred processing the cash transfer.")
@@ -442,7 +464,7 @@ async def process_option_lifecycle_transaction(
          if quantity > abs(option_position.quantity): raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Quantity ({quantity}) exceeds available short position quantity ({abs(option_position.quantity)}).")
          option_quantity_change = quantity
     else: raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot process lifecycle event on a zero quantity option position.")
-    primary_tx_data = {"fund_id": fund_id, "asset_id": option_asset_id, "transaction_type": tx_type, "transaction_date": lifecycle_in.transaction_date, "quantity": quantity, "price_per_unit": None, "total_amount": None, "fees_commissions": fees, "description": lifecycle_in.description, "related_transaction_id": None, "reverses_transaction_id": None}
+    primary_tx_data = {"club_id": fund.club_id, "fund_id": fund_id, "asset_id": option_asset_id, "transaction_type": tx_type, "transaction_date": lifecycle_in.transaction_date, "quantity": quantity, "price_per_unit": None, "total_amount": None, "fees_commissions": fees, "description": lifecycle_in.description, "related_transaction_id": None, "reverses_transaction_id": None}
     linked_stock_tx: Transaction | None = None; stock_quantity_change: Decimal = Decimal("0"); stock_price: Decimal = option_asset.strike_price; cash_change_from_stock: Decimal = Decimal("0"); shares_per_contract = Decimal("100")
     try:
         primary_tx = await crud_transaction.create_transaction(db=db, transaction_data=primary_tx_data)
@@ -457,7 +479,7 @@ async def process_option_lifecycle_transaction(
              if option_asset.option_type == OptionType.CALL: stock_tx_type = TransactionType.SELL_STOCK; stock_quantity_change = -(quantity * shares_per_contract); cash_change_from_stock = abs(stock_quantity_change * stock_price)
              elif option_asset.option_type == OptionType.PUT: stock_tx_type = TransactionType.BUY_STOCK; stock_quantity_change = quantity * shares_per_contract; cash_change_from_stock = -(stock_quantity_change * stock_price)
         if stock_tx_type and underlying_asset:
-            stock_tx_data = {"fund_id": fund_id, "asset_id": underlying_asset.id, "transaction_type": stock_tx_type, "transaction_date": lifecycle_in.transaction_date, "quantity": abs(stock_quantity_change), "price_per_unit": stock_price, "total_amount": abs(stock_quantity_change * stock_price), "fees_commissions": Decimal("0.0"), "description": f"{tx_type.value} of {quantity} contract(s) {option_asset.symbol}", "related_transaction_id": primary_tx.id}
+            stock_tx_data = {"club_id": fund.club_id, "fund_id": fund_id, "asset_id": underlying_asset.id, "transaction_type": stock_tx_type, "transaction_date": lifecycle_in.transaction_date, "quantity": abs(stock_quantity_change), "price_per_unit": stock_price, "total_amount": abs(stock_quantity_change * stock_price), "fees_commissions": Decimal("0.0"), "description": f"{tx_type.value} of {quantity} contract(s) {option_asset.symbol}", "related_transaction_id": primary_tx.id}
             linked_stock_tx = await crud_transaction.create_transaction(db=db, transaction_data=stock_tx_data)
             log.info(f"Created linked stock transaction {linked_stock_tx.id} ({stock_tx_type}) related to {primary_tx.id}")
             await _update_or_create_position(db=db, fund_id=fund_id, asset_id=underlying_asset.id, quantity_change=stock_quantity_change, price_per_unit=stock_price)
@@ -472,6 +494,89 @@ async def process_option_lifecycle_transaction(
     except HTTPException as e: await db.rollback(); raise e
     except Exception as e: log.exception(f"Unexpected error processing option lifecycle event for fund {fund_id}, option {option_asset_id}: {e}"); await db.rollback(); raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred processing the option lifecycle event.")
 
+
+async def process_club_expense_transaction(
+    db: AsyncSession,
+    *,
+    expense_in: TransactionCreateClubExpense,
+    club_id: uuid.UUID
+) -> Transaction:
+    """
+    Process a club expense transaction.
+    
+    Args:
+        db: Database session
+        expense_in: Club expense data
+        club_id: ID of the club
+        
+    Returns:
+        Created transaction
+        
+    Raises:
+        HTTPException: If club not found or insufficient balance
+    """
+    try:
+        # Fetch the club
+        club = await crud_club.get_club(db=db, club_id=club_id)
+        if not club:
+            log.error(f"Club with ID {club_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Club with ID {club_id} not found",
+            )
+            
+        # Validate transaction type
+        if expense_in.transaction_type != TransactionType.CLUB_EXPENSE:
+            log.error(f"Invalid transaction type: {expense_in.transaction_type}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Transaction type must be CLUB_EXPENSE",
+            )
+            
+        # Calculate total deduction
+        total_deduction = expense_in.total_amount + expense_in.fees_commissions
+        
+        # Check if club has sufficient balance
+        if club.bank_account_balance < total_deduction:
+            log.error(f"Insufficient balance: {club.bank_account_balance} < {total_deduction}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Insufficient club bank account balance",
+            )
+            
+        # Create transaction data
+        transaction_data = {
+            "club_id": club_id,
+            "fund_id": None,
+            "asset_id": None,
+            "transaction_type": TransactionType.CLUB_EXPENSE,
+            "total_amount": expense_in.total_amount,
+            "fees_commissions": expense_in.fees_commissions,
+            "description": expense_in.description,
+            "transaction_date": expense_in.transaction_date,
+        }
+        
+        # Create the transaction
+        transaction = await crud_transaction.create_transaction(db=db, transaction_data=transaction_data)
+        
+        # Update club balance
+        club.bank_account_balance -= total_deduction
+        db.add(club)
+        await db.flush()
+        
+        return transaction
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Log and re-raise other exceptions
+        log.exception(f"Error processing club expense: {str(e)}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error processing club expense: {str(e)}",
+        )
 
 # --- Transaction Retrieval Services ---
 

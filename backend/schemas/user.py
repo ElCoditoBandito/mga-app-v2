@@ -18,6 +18,8 @@ from . import orm_config
 class UserBase(BaseModel):
     email: str = Field(..., example="member@example.com")
     is_active: bool = True
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
 
 # Schema for creating a user (usually from Auth0 info)
 class UserCreate(UserBase):
@@ -32,6 +34,7 @@ class UserUpdate(BaseModel):
 # Basic Read schema (for nesting in other resources)
 class UserReadBasic(UserBase):
     id: uuid.UUID
+    auth0_sub: str
     model_config = orm_config
 
 # Full Read schema (potentially including sensitive info like auth0_sub)

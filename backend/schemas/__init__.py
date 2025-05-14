@@ -56,12 +56,14 @@ from .fund import (
     FundReadBasic,
     FundUpdate,
     FundReadWithPositions,
+    FundReadDetailed,
+    FundPerformanceHistoryResponse,
     FundSplitBase,
     FundSplitCreate,
     FundSplitRead,
     FundSplitUpdate,
     FundSplitItem,
-
+    FundPerformanceHistoryPoint,
 )
 
 from .member_transaction import (
@@ -114,4 +116,13 @@ MemberTransactionRead.model_rebuild() # Add rebuild for MemberTransactionRead
 UnitValueHistoryRead.model_rebuild() # Add rebuild for UnitValueHistoryRead
 ClubPortfolio.model_rebuild()
 MemberStatementData.model_rebuild()
-
+ClubRead.model_rebuild()
+ClubReadBasic.model_rebuild()
+ClubMembershipReadBasicUser.model_rebuild()
+ClubMembershipRead.model_rebuild()
+FundReadDetailed.model_rebuild()
+FundReadWithPositions.model_rebuild()
+FundRead.model_rebuild()
+UserReadBasic.model_rebuild()
+ClubMembershipRead.model_rebuild()
+TransactionRead.model_rebuild()

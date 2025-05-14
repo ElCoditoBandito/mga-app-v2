@@ -5,6 +5,10 @@ from typing import Sequence, Dict, Any # Import Dict, Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+# Import models needed
+from backend.models import Club, Fund, User, ClubMembership, FundSplit # Added ClubMembership, FundSplit
 
 # Import models needed
 from backend.models import Club, Fund, User # Keep Fund for get_default_fund_for_club
@@ -38,8 +42,16 @@ async def create_club(
     return db_club
 
 async def get_club(db: AsyncSession, club_id: uuid.UUID) -> Club | None:
-    """Gets a club by its ID."""
-    result = await db.execute(select(Club).filter(Club.id == club_id))
+    """Gets a club by its ID, eagerly loading relationships for ClubRead schema."""
+    result = await db.execute(
+        select(Club)
+        .options(
+            selectinload(Club.memberships).selectinload(ClubMembership.user),
+            selectinload(Club.funds),
+            selectinload(Club.fund_splits).selectinload(FundSplit.fund)
+        )
+        .filter(Club.id == club_id)
+    )
     # Add unique() for safety, although less likely needed than with Asset
     return result.unique().scalars().first()
 

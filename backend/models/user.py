@@ -10,6 +10,8 @@ class User(IdMixin, TimestampMixin, TableNameMixin, Base):
 
     auth0_sub = Column(String, unique=True, index=True, nullable=False) # Auth0 User ID
     email = Column(String, unique=True, index=True, nullable=False) # Store email for convenience
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
 
     # Relationships

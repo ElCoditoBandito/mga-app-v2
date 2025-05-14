@@ -16,7 +16,7 @@ class FundSplit(IdMixin, TimestampMixin, TableNameMixin, Base):
 
     # Relationships
     club = relationship("Club", back_populates="fund_splits")
-    # fund = relationship("Fund", back_populates="fund_split") # Relationship back to fund might not be strictly necessary
+    fund = relationship("Fund", back_populates="fund_split") # Relationship back to fund might not be strictly necessary
 
     # Constraints
     __table_args__ = (UniqueConstraint('club_id', 'fund_id', name='uq_club_fund_split'),)
