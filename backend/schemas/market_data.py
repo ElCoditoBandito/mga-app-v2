@@ -26,26 +26,40 @@ class MarketTradingStatus(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 class StockExchangeInfo(BaseModel):
-    name: Optional[str] = None # Full exchange name from /tickers > stock_exchange > name
-    acronym: Optional[str] = None # e.g., "NASDAQ" from /tickers > stock_exchange > acronym
-    mic: Optional[str] = None # Market Identifier Code from /tickers > stock_exchange > mic
-    country: Optional[str] = None # From /tickers > stock_exchange > country
-    country_code: Optional[str] = Field(None, alias="countryCode") # From /tickers > stock_exchange > country_code
-    city: Optional[str] = None # From /tickers > stock_exchange > city
-    website: Optional[HttpUrl] = Field(None, alias="website_str") # Field name in MS is 'website', ensure it's parsed to HttpUrl
+    name: Optional[str] = None
+    acronym: Optional[str] = None
+    mic: Optional[str] = None
+    country: Optional[str] = None
+    country_code: Optional[str] = Field(None, alias="countryCode")
+    city: Optional[str] = None
+    website: Optional[HttpUrl] = Field(None, alias="website_str")
+    operating_mic: Optional[str] = Field(None, alias="operatingMic")
+    oprt_sgmt: Optional[str] = Field(None, alias="oprtSgmt")
+    legal_entity_name: Optional[str] = Field(None, alias="legalEntityName")
+    exchange_lei: Optional[str] = Field(None, alias="exchangeLei")
+    market_category_code: Optional[str] = Field(None, alias="marketCategoryCode")
+    exchange_status: Optional[str] = Field(None, alias="exchangeStatus")
+    date_creation_str: Optional[str] = Field(None, alias="dateCreationStr") 
+    date_last_update_str: Optional[str] = Field(None, alias="dateLastUpdateStr")
+    date_last_validation_str: Optional[str] = Field(None, alias="dateLastValidationStr")
+    date_expiry_str: Optional[str] = Field(None, alias="dateExpiryStr")
+    comments: Optional[str] = None
 
     @validator('website', pre=True, allow_reuse=True)
     def _validate_website_str(cls, v):
         if v and not isinstance(v, HttpUrl):
             return HttpUrl(v) if isinstance(v, str) and v.startswith(('http', 'https')) else None
         return v
+    
+    class Config:
+        allow_population_by_field_name = True
 
 class MarketIdentifier(BaseModel):
     symbol: str
-    name: Optional[str] = None # From EOD > name OR /tickers > name OR /tickerinfo > name
-    asset_type: Optional[MarketAssetType] = Field(None, alias="assetType") # From EOD > asset_type
-    currency: Optional[str] = None # From EOD > price_currency OR /tickerinfo > reporting_currency
-    stock_exchange_info: Optional[StockExchangeInfo] = Field(None, alias="stockExchange") # From /tickers > stock_exchange
+    name: Optional[str] = None
+    asset_type: Optional[MarketAssetType] = Field(None, alias="assetType")
+    currency: Optional[str] = None
+    stock_exchange_info: Optional[StockExchangeInfo] = Field(None, alias="stockExchange")
 
     class Config:
         allow_population_by_field_name = True
@@ -64,12 +78,48 @@ class HistoricalPricePoint(BaseModel):
     volume: float
     split_factor: Optional[float] = None
     dividend: Optional[float] = None
-    # Fields from Marketstack EOD item directly
     symbol_from_eod: Optional[str] = Field(None, alias="symbol")
     exchange_mic_from_eod: Optional[str] = Field(None, alias="exchange")
     name_from_eod: Optional[str] = Field(None, alias="name")
-    asset_type_from_eod: Optional[str] = Field(None, alias="asset_type") # Raw string from provider
+    asset_type_from_eod: Optional[str] = Field(None, alias="asset_type")
     price_currency_from_eod: Optional[str] = Field(None, alias="price_currency")
+
+    class Config:
+        allow_population_by_field_name = True
+
+class IntradayPricePoint(MarketIdentifier): # Inherits symbol. Name, asset_type, currency may be None from intraday feed.
+    date: datetime                      # "date" from response (timestamp of the bar)
+    open: Optional[float] = None
+    high: Optional[float] = None
+    low: Optional[float] = None
+    close: Optional[float] = None        # In MarketStack intraday, "close" is often the previous EOD close, or calculated.
+    last: Optional[float] = None         # "last" from response (IEX last trade price in the interval)
+    volume: Optional[float] = None
+    exchange_mic_from_intraday: Optional[str] = Field(None, alias="exchange")
+
+
+    # Fields specific to Marketstack's intraday or potentially IEX derived:
+    mid: Optional[float] = None          # Midpoint price, often (bid+ask)/2
+    last_size: Optional[float] = Field(None, alias="lastSize") 
+    bid_price: Optional[float] = Field(None, alias="bidPrice") # Note: May be null if IEX entitlement not present
+    bid_size: Optional[float] = Field(None, alias="bidSize")   # Note: May be null
+    ask_price: Optional[float] = Field(None, alias="askPrice") # Note: May be null
+    ask_size: Optional[float] = Field(None, alias="askSize")   # Note: May be null
+    marketstack_last: Optional[float] = Field(None, alias="marketstackLast") # Marketstack's calculated last price
+    
+    @validator('symbol', pre=True, always=True)
+    def set_symbol_if_not_present(cls, v, values):
+        # If 'symbol' is not directly provided in the input data for IntradayPricePoint,
+        # try to get it from the parent MarketIdentifier if it was populated by alias
+        if v is None and 'symbol' in values: # 'symbol' might be in values if passed to MarketIdentifier part
+            return values['symbol']
+        # Or, if the API response for intraday uses a field named "symbol" directly (which it does)
+        # and it wasn't picked by MarketIdentifier (e.g. if data is passed directly to IntradayPricePoint)
+        # this validator ensures it's set on the model.
+        # However, Pydantic usually handles aliasing well if `symbol` is in the input data.
+        # This validator is more of a safeguard or for complex instantiation scenarios.
+        # Given Marketstack provides "symbol", it should be directly mapped.
+        return v
 
     class Config:
         allow_population_by_field_name = True
@@ -83,9 +133,9 @@ class EquityQuote(MarketIdentifier):
     high: Optional[float] = None
     low: Optional[float] = None
     volume: Optional[float] = None
-    adj_close: Optional[float] = None # From EOD
-    adj_open: Optional[float] = None # From EOD
-    timestamp: datetime # Date of the EOD data
+    adj_close: Optional[float] = None
+    adj_open: Optional[float] = None
+    timestamp: datetime
     averageVolume: Optional[float] = None
     marketCap: Optional[float] = None
     yearHigh: Optional[float] = None
@@ -99,8 +149,8 @@ class EquityQuote(MarketIdentifier):
     peRatio: Optional[float] = None
     beta: Optional[float] = None
     earningDate: Optional[datetime] = None
-    dividend_eod: Optional[float] = Field(None, alias="dividend") # From EOD data point
-    split_factor_eod: Optional[float] = Field(None, alias="split_factor") # From EOD data point
+    dividend_eod: Optional[float] = Field(None, alias="dividend")
+    split_factor_eod: Optional[float] = Field(None, alias="split_factor")
 
     class Config:
         allow_population_by_field_name = True
@@ -138,15 +188,15 @@ class CompanyProfile(MarketIdentifier):
     sic_name: Optional[str] = Field(None, alias="sicName")
     item_type: Optional[str] = Field(None, alias="itemType")
     about: Optional[str] = None
-    website: Optional[HttpUrl] = Field(None, alias="website_str") # using alias for validator
+    website: Optional[HttpUrl] = Field(None, alias="website_str")
     full_time_employees: Optional[str] = Field(None, alias="fullTimeEmployees")
     ipo_date: Optional[date] = Field(None, alias="ipoDate")
     date_founded: Optional[date] = Field(None, alias="dateFounded")
     key_executives: Optional[List[KeyExecutive]] = Field(None, alias="keyExecutives")
-    incorporation_state: Optional[str] = Field(None, alias="incorporation_description") # from tickerinfo
+    incorporation_state: Optional[str] = Field(None, alias="incorporation_description")
     fiscal_year_end: Optional[str] = Field(None, alias="end_fiscal")
     phone_number: Optional[str] = Field(None, alias="phone")
-    address_details: Optional[CompanyAddress] = Field(None, alias="address") # From /tickerinfo
+    address_details: Optional[CompanyAddress] = Field(None, alias="address")
     
     @validator('website', pre=True, allow_reuse=True)
     def _validate_profile_website_str(cls, v):
@@ -157,20 +207,21 @@ class CompanyProfile(MarketIdentifier):
     class Config:
         allow_population_by_field_name = True
 
+# NewsArticle schema is kept for potential future use with other providers
 class NewsArticle(BaseModel):
-    id: str
+    id: str # Or UUID
     headline: str
     summary: Optional[str] = None
-    source: str
+    source: str # e.g., "Reuters", "Bloomberg"
     url: HttpUrl
-    publishedAt: datetime
+    publishedAt: datetime # Publication timestamp
     imageUrl: Optional[HttpUrl] = None
-    symbols: Optional[List[str]] = None
-    topics: Optional[List[str]] = None
-    sentiment: Optional[str] = None
+    symbols: Optional[List[str]] = None # Related stock symbols
+    topics: Optional[List[str]] = None # e.g., ["earnings", "ipo"]
+    sentiment: Optional[str] = None # e.g., "positive", "negative", "neutral"
 
 class DividendData(MarketIdentifier):
-    date: datetime # Primary date from MarketStack dividend entry
+    date: datetime 
     dividend_amount: float = Field(..., alias="dividend")
     payment_date: Optional[datetime] = Field(None, alias="paymentDate")
     record_date: Optional[datetime] = Field(None, alias="recordDate")
@@ -181,9 +232,9 @@ class DividendData(MarketIdentifier):
         allow_population_by_field_name = True
         
 class StockSplitData(MarketIdentifier):
-    date: datetime # Date of the split from MarketStack
+    date: datetime 
     split_factor: float = Field(..., alias="splitFactor")
-    stock_split_ratio: Optional[str] = Field(None, alias="stock_split") # e.g., "4:1"
+    stock_split_ratio: Optional[str] = Field(None, alias="stock_split")
 
     class Config:
         allow_population_by_field_name = True
@@ -244,16 +295,14 @@ class IndexQuote(MarketIdentifier):
     price: Optional[float] = None
     change: Optional[float] = None
     percentChange: Optional[float] = None
-    timestamp: Optional[datetime] = None # For EOD data, this is the EOD timestamp.
-                                      # For /indexinfo, it's the 'date' field.
-    # From /indexinfo specific response
+    timestamp: Optional[datetime] = None
     region: Optional[str] = None
     price_change_day_str: Optional[str] = Field(None, alias="price_change_day") 
     percentage_day_str: Optional[str] = Field(None, alias="percentage_day") 
     percentage_week_str: Optional[str] = Field(None, alias="percentage_week")
     percentage_month_str: Optional[str] = Field(None, alias="percentage_month")
     percentage_year_str: Optional[str] = Field(None, alias="percentage_year")
-    index_info_date: Optional[date] = Field(None, alias="date") # from /indexinfo 'date' field
+    index_info_date: Optional[date] = Field(None, alias="date")
 
     class Config:
         allow_population_by_field_name = True
@@ -275,7 +324,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
     totalItems: Optional[int] = None
     totalPages: Optional[int] = None
 
-class MarketDataError(Exception): # Changed from BaseModel to Exception
+class MarketDataError(Exception):
     def __init__(self, message: str, symbol: Optional[str] = None, provider: Optional[str] = None, errorCode: Optional[str] = None):
         super().__init__(message)
         self.message = message

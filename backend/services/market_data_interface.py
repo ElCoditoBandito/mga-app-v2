@@ -5,10 +5,10 @@ from datetime import date, datetime
 from backend.schemas.market_data import (
     EquityQuote,
     HistoricalPricePoint,
+    IntradayPricePoint, # Added IntradayPricePoint
     CompanyProfile,
-    NewsArticle,
     DividendData,
-    StockSplitData, # Added StockSplitData
+    StockSplitData,
     OptionQuote,
     ForexQuote,
     CryptoQuote,
@@ -40,23 +40,24 @@ class MarketDataServiceInterface(ABC):
         pass
 
     @abstractmethod
-    async def get_company_profile(
-        self, 
-        symbol: str, 
-        exchange: Optional[str] = None # Exchange might be used by some providers to disambiguate
-    ) -> Optional[CompanyProfile]:
-        """Fetch company profile information."""
+    async def get_intraday_price_data(
+        self,
+        symbol: str,
+        interval: str, # e.g., "1min", "5min", "1hour"
+        from_date: Optional[datetime] = None, # For specific day/time range
+        to_date: Optional[datetime] = None,   # For specific day/time range
+        exchange: Optional[str] = None
+    ) -> List[IntradayPricePoint]:
+        """Fetch intraday price data for an equity."""
         pass
 
     @abstractmethod
-    async def get_news_articles(
-        self,
-        symbols: Optional[List[str]] = None,
-        topics: Optional[List[str]] = None,
-        limit: int = 20,
-        source: Optional[str] = None # e.g. specific news provider
-    ) -> List[NewsArticle]:
-        """Fetch news articles, filterable by symbols, topics, or all general news."""
+    async def get_company_profile(
+        self, 
+        symbol: str, 
+        exchange: Optional[str] = None
+    ) -> Optional[CompanyProfile]:
+        """Fetch company profile information."""
         pass
 
     @abstractmethod
@@ -81,13 +82,10 @@ class MarketDataServiceInterface(ABC):
         """Fetch stock split history for an equity."""
         pass
 
-    # --- Optional methods for other asset types based on initial models ---
-    # Implement these as needed for your MVP or future enhancements
-
     @abstractmethod
     async def get_option_quote(
         self, 
-        contract_symbol: str # Specific option contract symbol
+        contract_symbol: str
     ) -> Optional[OptionQuote]:
         """Fetch a quote for an options contract."""
         pass
@@ -110,7 +108,7 @@ class MarketDataServiceInterface(ABC):
     @abstractmethod
     async def get_market_movers(
         self, 
-        market_segment: str, # e.g., 'gainers', 'losers', 'most_active'
+        market_segment: str,
         top_n: int = 10,
         exchange: Optional[str] = None 
     ) -> List[MarketMover]:
@@ -118,7 +116,6 @@ class MarketDataServiceInterface(ABC):
         pass
 
     @abstractmethod
-    async def search_symbols(self, query: str, asset_type: Optional[MarketAssetType] = None, limit: int = 10) -> List[CompanyProfile]: # Returning CompanyProfile for richer search results
+    async def search_symbols(self, query: str, asset_type: Optional[MarketAssetType] = None, limit: int = 10) -> List[CompanyProfile]:
         """Search for symbols/companies based on a query string."""
         pass
-

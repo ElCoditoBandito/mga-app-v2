@@ -6,9 +6,9 @@ from backend.schemas.market_data import (
     EquityQuote,
     HistoricalPricePoint,
     CompanyProfile,
-    NewsArticle,
+    # NewsArticle, # Removed NewsArticle import if it's not used by other methods
     DividendData,
-    StockSplitData, # Added
+    StockSplitData,
     OptionQuote,
     ForexQuote,
     CryptoQuote,
@@ -30,9 +30,6 @@ class MarketDataService(MarketDataServiceInterface):
     """
 
     def __init__(self, provider: str = "marketstack", api_key_marketstack: Optional[str] = None, api_key_alphavantage: Optional[str] = None):
-        # Configuration for provider selection would go here.
-        # For now, we default to MarketStack.
-        # In a real app, this would likely come from a config file or environment variables.
         self.provider_name = provider
         self._adapter: MarketDataServiceInterface
 
@@ -64,14 +61,7 @@ class MarketDataService(MarketDataServiceInterface):
     ) -> Optional[CompanyProfile]:
         return await self._adapter.get_company_profile(symbol, exchange)
 
-    async def get_news_articles(
-        self,
-        symbols: Optional[List[str]] = None,
-        topics: Optional[List[str]] = None,
-        limit: int = 20,
-        source: Optional[str] = None
-    ) -> List[NewsArticle]:
-        return await self._adapter.get_news_articles(symbols, topics, limit, source)
+    # get_news_articles method removed
 
     async def get_dividend_data(
         self,
@@ -82,7 +72,7 @@ class MarketDataService(MarketDataServiceInterface):
     ) -> List[DividendData]:
         return await self._adapter.get_dividend_data(symbol, from_date, to_date, exchange)
 
-    async def get_stock_split_data( # Added
+    async def get_stock_split_data(
         self,
         symbol: str,
         from_date: Optional[date] = None,
@@ -127,11 +117,3 @@ class MarketDataService(MarketDataServiceInterface):
             print(f"MarketDataService adapter ({self.provider_name}) closed.")
         else:
             print(f"MarketDataService adapter ({self.provider_name}) does not have a close method or it is not callable.")
-
-# Example of how this service might be instantiated and used (e.g., in a FastAPI dependency or startup event)
-# async def get_market_data_service():
-#     service = MarketDataService(provider="marketstack") # API keys loaded from env by adapter
-#     try:
-#         yield service
-#     finally:
-#         await service.close_adapter()
