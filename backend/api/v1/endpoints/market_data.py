@@ -1,206 +1,233 @@
-# backend/api/v1/endpoints/market_data.py
-from fastapi import APIRouter, Depends, HTTPException, Query
+from datetime import date
 from typing import Optional, List
-from datetime import date # Ensure date is imported
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.schemas.market_data import (
-    EquityQuote,
-    HistoricalPricePoint,
-    CompanyProfile,
-    # NewsArticle, # Removed NewsArticle import
-    DividendData,
-    StockSplitData,
-    IndexQuote,
-    MarketAssetType,
-    # Add other schemas as you create endpoints for them
+    StockQuoteResponse,
+    StockHistoricalDataResponse,
+    IndexQuoteResponse,
+    ForexRateResponse,
+    # Phase 2 additions
+    CommodityPriceResponse,
+    HistoricalCommodityPriceResponse,
+    CompanyRatingResponse,
+    IndexListResponse,
+    BondCountryListResponse,
+    BondInfoResponse,
+    ETFTickerListResponse,
+    ETFHoldingResponse
 )
 from backend.services.market_data_service import MarketDataService
-# We'll need a way to get the MarketDataService instance. Let's define a dependency.
 
-# Placeholder for API key loading if needed directly by service constructor
-# In a real app, use a proper config management (e.g., Pydantic BaseSettings)
-# For now, the MarketDataService and its adapters load keys from os.getenv()
+router = APIRouter(prefix="/market-data", tags=["market-data"])
 
-async def get_market_data_service():
-    """FastAPI dependency to get an instance of MarketDataService."""
-    # API keys are loaded from environment variables by the adapters themselves for now.
-    service = MarketDataService(provider="marketstack") 
-    try:
-        yield service
-    finally:
-        await service.close_adapter() # Ensure the adapter's resources are cleaned up
 
-router = APIRouter()
-
-@router.get(
-    "/quote/{symbol}", 
-    response_model=Optional[EquityQuote],
-    summary="Get Equity Quote",
-    tags=["Market Data"]
-)
-async def read_equity_quote(
+@router.get("/stocks/{symbol}", response_model=StockQuoteResponse)
+async def get_stock_quote(
     symbol: str,
-    exchange: Optional[str] = Query(None, description="Optional exchange symbol (e.g., XNAS for NASDAQ)"),
-    market_service: MarketDataService = Depends(get_market_data_service)
+    market_data_service: MarketDataService = Depends(lambda: MarketDataService()),
 ):
-    """
-    Retrieve the latest available quote for a given equity symbol.
-    """
-    quote = await market_service.get_equity_quote(symbol=symbol, exchange=exchange)
+    """Get current stock quote for a symbol"""
+    quote = await market_data_service.get_stock_quote(symbol)
     if not quote:
-        raise HTTPException(status_code=404, detail=f"Quote not found for symbol {symbol}")
-    return quote
+        raise HTTPException(status_code=404, detail=f"Stock quote for {symbol} not found")
+    return StockQuoteResponse(data=quote)
 
-@router.get(
-    "/historical/{symbol}",
-    response_model=List[HistoricalPricePoint],
-    summary="Get Historical Price Data",
-    tags=["Market Data"]
-)
-async def read_historical_price_data(
+
+@router.get("/stocks/{symbol}/historical", response_model=StockHistoricalDataResponse)
+async def get_stock_historical_data(
     symbol: str,
-    from_date: date = Query(..., description="Start date in YYYY-MM-DD format"),
-    to_date: date = Query(..., description="End date in YYYY-MM-DD format"),
-    exchange: Optional[str] = Query(None, description="Optional exchange symbol"),
-    market_service: MarketDataService = Depends(get_market_data_service)
+    from_date: Optional[date] = Query(None, alias="from"),
+    to_date: Optional[date] = Query(None, alias="to"),
+    market_data_service: MarketDataService = Depends(lambda: MarketDataService()),
 ):
-    """
-    Retrieve historical end-of-day price data for a given equity symbol between two dates.
-    """
-    historical_data = await market_service.get_historical_price_data(
-        symbol=symbol,
-        from_date=from_date,
-        to_date=to_date,
-        exchange=exchange
+    """Get historical stock data for a symbol"""
+    data = await market_data_service.get_stock_historical_data(
+        symbol, from_date, to_date
     )
-    return historical_data
+    if not data:
+        raise HTTPException(
+            status_code=404, detail=f"Historical data for {symbol} not found"
+        )
+    return StockHistoricalDataResponse(data=data)
 
-@router.get(
-    "/profile/{symbol}",
-    response_model=Optional[CompanyProfile],
-    summary="Get Company Profile",
-    tags=["Market Data"]
-)
-async def read_company_profile(
+
+@router.get("/indices/{symbol}", response_model=IndexQuoteResponse)
+async def get_index_quote(
     symbol: str,
-    exchange: Optional[str] = Query(None, description="Optional exchange symbol"),
-    market_service: MarketDataService = Depends(get_market_data_service)
+    market_data_service: MarketDataService = Depends(lambda: MarketDataService()),
+):
+    """Get current quote for a market index"""
+    quote = await market_data_service.get_index_quote(symbol)
+    if not quote:
+        raise HTTPException(status_code=404, detail=f"Index quote for {symbol} not found")
+    return IndexQuoteResponse(data=quote)
+
+
+@router.get("/forex", response_model=ForexRateResponse)
+async def get_forex_rate(
+    base: str,
+    quote: str,
+    market_data_service: MarketDataService = Depends(lambda: MarketDataService()),
+):
+    """Get current forex exchange rate"""
+    rate = await market_data_service.get_forex_rate(base, quote)
+    if not rate:
+        raise HTTPException(
+            status_code=404, detail=f"Forex rate for {base}/{quote} not found"
+        )
+    return ForexRateResponse(data=rate)
+
+
+# Phase 2 - Commodity Prices
+@router.get("/commodities/{commodity_name}", response_model=CommodityPriceResponse)
+async def get_commodity_price(
+    commodity_name: str,
+    market_data_service: MarketDataService = Depends(lambda: MarketDataService()),
 ):
     """
-    Retrieve company profile information for a given equity symbol.
+    Get current commodity price
+    
+    Note: Requires Professional plan or higher. Rate limit 1 call/min.
     """
-    profile = await market_service.get_company_profile(symbol=symbol, exchange=exchange)
-    if not profile:
-        raise HTTPException(status_code=404, detail=f"Profile not found for symbol {symbol}")
-    return profile
+    price = await market_data_service.get_commodity_price(commodity_name)
+    if not price:
+        raise HTTPException(
+            status_code=404, detail=f"Commodity price for {commodity_name} not found"
+        )
+    return CommodityPriceResponse(data=price)
 
-# News endpoint removed as MarketStack v2 does not seem to support it directly.
-# @router.get(
-#     "/news",
-#     response_model=List[NewsArticle],
-#     summary="Get Market News",
-#     tags=["Market Data"]
-# )
-# async def read_market_news(
-#     symbols: Optional[str] = Query(None, description="Comma-separated list of symbols (e.g., AAPL,MSFT)"),
-#     limit: int = Query(20, ge=1, le=100, description="Number of articles to return"),
-#     source: Optional[str] = Query(None, description="Filter by news source(s), provider-specific format"), 
-#     market_service: MarketDataService = Depends(get_market_data_service)
-# ):
-#     """
-#     Retrieve market news articles. Can be filtered by symbols.
-#     """
-#     symbol_list = symbols.split(',') if symbols else None
-#     news = await market_service.get_news_articles(symbols=symbol_list, limit=limit, source=source)
-#     return news
 
-@router.get(
-    "/{symbol}/dividends",
-    response_model=List[DividendData],
-    summary="Get Dividend Data",
-    tags=["Market Data"]
-)
-async def read_dividend_data(
-    symbol: str,
-    from_date: Optional[date] = Query(None, description="Start date in YYYY-MM-DD format (optional)"),
-    to_date: Optional[date] = Query(None, description="End date in YYYY-MM-DD format (optional)"),
-    exchange: Optional[str] = Query(None, description="Optional exchange symbol for disambiguation (e.g., XNAS)"),
-    market_service: MarketDataService = Depends(get_market_data_service)
+# Phase 2 - Historical Commodity Prices
+@router.get("/commodities/{commodity_name}/historical", response_model=HistoricalCommodityPriceResponse)
+async def get_historical_commodity_prices(
+    commodity_name: str,
+    from_date: Optional[date] = Query(None, alias="from"),
+    to_date: Optional[date] = Query(None, alias="to"),
+    frequency: Optional[str] = Query(None, description="Data frequency (daily, weekly, monthly)"),
+    market_data_service: MarketDataService = Depends(lambda: MarketDataService()),
 ):
     """
-    Retrieve dividend history for a given equity symbol.
-    Can be filtered by a date range.
+    Get historical commodity prices
+    
+    Note: Requires Professional plan or higher. Rate limit 1 call/min. Max 1-year range for daily data.
     """
-    dividends = await market_service.get_dividend_data(
-        symbol=symbol,
-        from_date=from_date,
-        to_date=to_date,
-        exchange=exchange
+    data = await market_data_service.get_historical_commodity_prices(
+        commodity_name, from_date, to_date, frequency
     )
-    return dividends
+    if not data:
+        raise HTTPException(
+            status_code=404, detail=f"Historical commodity prices for {commodity_name} not found"
+        )
+    return HistoricalCommodityPriceResponse(data=data)
 
-@router.get(
-    "/{symbol}/splits",
-    response_model=List[StockSplitData],
-    summary="Get Stock Split History",
-    tags=["Market Data"]
-)
-async def read_stock_split_data(
-    symbol: str,
-    from_date: Optional[date] = Query(None, description="Start date in YYYY-MM-DD format (optional)"),
-    to_date: Optional[date] = Query(None, description="End date in YYYY-MM-DD format (optional)"),
-    exchange: Optional[str] = Query(None, description="Optional exchange symbol for disambiguation (e.g., XNAS)"),
-    market_service: MarketDataService = Depends(get_market_data_service)
+
+# Phase 2 - Company Ratings
+@router.get("/companies/{ticker}/ratings", response_model=CompanyRatingResponse)
+async def get_company_ratings(
+    ticker: str,
+    from_date: Optional[date] = Query(None, alias="from"),
+    to_date: Optional[date] = Query(None, alias="to"),
+    rated: Optional[str] = Query(None, description="Filter by rating (buy, sell, hold)"),
+    market_data_service: MarketDataService = Depends(lambda: MarketDataService()),
 ):
     """
-    Retrieve stock split history for a given equity symbol.
-    Can be filtered by a date range.
+    Get company analyst ratings
+    
+    Note: Requires Business plan or higher. Rate limit 1 call/min.
     """
-    splits = await market_service.get_stock_split_data(
-        symbol=symbol,
-        from_date=from_date,
-        to_date=to_date,
-        exchange=exchange
+    ratings = await market_data_service.get_company_ratings(
+        ticker, from_date, to_date, rated
     )
-    return splits
+    if not ratings:
+        raise HTTPException(
+            status_code=404, detail=f"Company ratings for {ticker} not found"
+        )
+    return CompanyRatingResponse(data=ratings)
 
-@router.get(
-    "/index/{symbol}",
-    response_model=Optional[IndexQuote],
-    summary="Get Index Quote",
-    tags=["Market Data"]
-)
-async def read_index_quote(
-    symbol: str,
-    exchange: Optional[str] = Query(None, description="Optional exchange symbol for the index (if applicable by provider)"),
-    market_service: MarketDataService = Depends(get_market_data_service)
+
+# Phase 2 - Stock Market Index Listing
+@router.get("/indices", response_model=IndexListResponse)
+async def list_stock_market_indexes(
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    market_data_service: MarketDataService = Depends(lambda: MarketDataService()),
 ):
     """
-    Retrieve the latest available quote for a given market index symbol.
+    Get a list of all available stock market indexes/benchmarks
+    
+    Note: Available on Basic plan and higher.
     """
-    index_quote = await market_service.get_index_quote(symbol=symbol, exchange=exchange)
-    if not index_quote:
-        raise HTTPException(status_code=404, detail=f"Index quote not found for symbol {symbol}")
-    return index_quote
+    indexes = await market_data_service.list_stock_market_indexes(limit, offset)
+    return IndexListResponse(data=indexes)
 
-@router.get(
-    "/search",
-    response_model=List[CompanyProfile], # Assuming search returns a list of company profiles
-    summary="Search for Symbols/Companies",
-    tags=["Market Data"]
-)
-async def search_symbols_companies(
-    query_str: str = Query(..., alias="query", description="Search query string (e.g., company name or symbol fragment)"),
-    asset_type: Optional[MarketAssetType] = Query(None, description="Filter by asset type (e.g., STOCK, ETF)"),
-    limit: int = Query(10, ge=1, le=100, description="Maximum number of results to return"),
-    market_service: MarketDataService = Depends(get_market_data_service)
+
+# Phase 2 - Bonds Data
+@router.get("/bonds", response_model=BondCountryListResponse)
+async def list_bond_countries(
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    market_data_service: MarketDataService = Depends(lambda: MarketDataService()),
 ):
     """
-    Search for market symbols or companies based on a query string.
-    The MarketStackAdapter uses the /tickerslist endpoint which returns basic company info,
-    so CompanyProfile is used as the response model here.
+    Get a list of bond-issuing countries
+    
+    Note: Available on Basic plan and higher.
     """
-    results = await market_service.search_symbols(query=query_str, asset_type=asset_type, limit=limit)
-    return results
+    countries = await market_data_service.list_bond_countries(limit, offset)
+    return BondCountryListResponse(data=countries)
 
-# Add more endpoints here for other MarketDataService methods as needed.
+
+@router.get("/bonds/{country}", response_model=BondInfoResponse)
+async def get_bond_info(
+    country: str,
+    market_data_service: MarketDataService = Depends(lambda: MarketDataService()),
+):
+    """
+    Get specific bond info for a country
+    
+    Note: Available on Basic plan and higher.
+    """
+    bond_info = await market_data_service.get_bond_info(country)
+    if not bond_info:
+        raise HTTPException(
+            status_code=404, detail=f"Bond info for {country} not found"
+        )
+    return BondInfoResponse(data=bond_info)
+
+
+# Phase 2 - ETF Data
+@router.get("/etfs", response_model=ETFTickerListResponse)
+async def list_etfs(
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    market_data_service: MarketDataService = Depends(lambda: MarketDataService()),
+):
+    """
+    Get a list of ETFs
+    
+    Note: Available on Basic plan and higher. CALL COUNT MULTIPLIER of 20 for ETF endpoints.
+    """
+    etfs = await market_data_service.list_etfs(limit, offset)
+    return ETFTickerListResponse(data=etfs)
+
+
+@router.get("/etfs/{ticker}/holdings", response_model=ETFHoldingResponse)
+async def get_etf_holdings(
+    ticker: str,
+    from_date: Optional[date] = Query(None, alias="from"),
+    to_date: Optional[date] = Query(None, alias="to"),
+    market_data_service: MarketDataService = Depends(lambda: MarketDataService()),
+):
+    """
+    Get detailed ETF holdings
+    
+    Note: Available on Basic plan and higher. CALL COUNT MULTIPLIER of 20 for ETF endpoints.
+    """
+    holdings = await market_data_service.get_etf_holdings(ticker, from_date, to_date)
+    if not holdings:
+        raise HTTPException(
+            status_code=404, detail=f"ETF holdings for {ticker} not found"
+        )
+    return ETFHoldingResponse(data=holdings)

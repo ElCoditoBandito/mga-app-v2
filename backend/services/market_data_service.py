@@ -1,119 +1,123 @@
-# backend/services/market_data_service.py
-from typing import List, Optional
 from datetime import date, datetime
+from typing import List, Optional, Any
 
 from backend.schemas.market_data import (
-    EquityQuote,
-    HistoricalPricePoint,
-    CompanyProfile,
-    # NewsArticle, # Removed NewsArticle import if it's not used by other methods
-    DividendData,
-    StockSplitData,
-    OptionQuote,
-    ForexQuote,
-    CryptoQuote,
+    StockQuote,
+    StockHistoricalData,
     IndexQuote,
-    MarketMover,
-    MarketAssetType
+    ForexRate,
+    # Phase 2 additions
+    CommodityPrice,
+    HistoricalCommodityPriceData,
+    CompanyRatingData,
+    IndexBasicInfo,
+    BondCountry,
+    BondInfoData,
+    ETFTicker,
+    ETFHoldingDetails
 )
 from backend.services.market_data_interface import MarketDataServiceInterface
 from backend.services.market_data_providers.marketstack_adapter import MarketStackAdapter
-# Import other adapters here as they are created, e.g.:
-# from backend.services.market_data_providers.alphavantage_adapter import AlphaVantageAdapter
 
-class MarketDataService(MarketDataServiceInterface):
-    """
-    Main service for accessing market data.
-    It uses a configured adapter (e.g., MarketStackAdapter) to fetch the data.
-    This class implements the MarketDataServiceInterface and delegates calls
-    to the active provider adapter.
-    """
 
-    def __init__(self, provider: str = "marketstack", api_key_marketstack: Optional[str] = None, api_key_alphavantage: Optional[str] = None):
-        self.provider_name = provider
-        self._adapter: MarketDataServiceInterface
+class MarketDataService:
+    """Service for retrieving market data"""
 
-        if self.provider_name == "marketstack":
-            self._adapter = MarketStackAdapter(api_key=api_key_marketstack)
-        # elif self.provider_name == "alphavantage":
-        #     self._adapter = AlphaVantageAdapter(api_key=api_key_alphavantage)
-        else:
-            raise ValueError(f"Unsupported market data provider: {self.provider_name}")
-        
-        print(f"MarketDataService initialized with provider: {self.provider_name}")
+    def __init__(self, provider: Optional[MarketDataServiceInterface] = None):
+        self.provider = provider or MarketStackAdapter()
 
-    async def get_equity_quote(self, symbol: str, exchange: Optional[str] = None) -> Optional[EquityQuote]:
-        return await self._adapter.get_equity_quote(symbol, exchange)
+    async def get_stock_quote(self, symbol: str) -> Optional[StockQuote]:
+        """Get current stock quote for a symbol"""
+        return await self.provider.get_stock_quote(symbol)
 
-    async def get_historical_price_data(
-        self,
-        symbol: str,
-        from_date: date,
-        to_date: date,
-        exchange: Optional[str] = None
-    ) -> List[HistoricalPricePoint]:
-        return await self._adapter.get_historical_price_data(symbol, from_date, to_date, exchange)
-
-    async def get_company_profile(
-        self, 
-        symbol: str, 
-        exchange: Optional[str] = None
-    ) -> Optional[CompanyProfile]:
-        return await self._adapter.get_company_profile(symbol, exchange)
-
-    # get_news_articles method removed
-
-    async def get_dividend_data(
+    async def get_stock_historical_data(
         self,
         symbol: str,
         from_date: Optional[date] = None,
         to_date: Optional[date] = None,
-        exchange: Optional[str] = None
-    ) -> List[DividendData]:
-        return await self._adapter.get_dividend_data(symbol, from_date, to_date, exchange)
+    ) -> Optional[StockHistoricalData]:
+        """Get historical stock data for a symbol"""
+        return await self.provider.get_stock_historical_data(
+            symbol, from_date, to_date
+        )
 
-    async def get_stock_split_data(
-        self,
-        symbol: str,
-        from_date: Optional[date] = None,
-        to_date: Optional[date] = None,
-        exchange: Optional[str] = None
-    ) -> List[StockSplitData]:
-        return await self._adapter.get_stock_split_data(symbol, from_date, to_date, exchange)
+    async def get_index_quote(self, symbol: str) -> Optional[IndexQuote]:
+        """Get current quote for a market index"""
+        return await self.provider.get_index_quote(symbol)
 
-    async def get_option_quote(
+    async def get_forex_rate(
+        self, base_currency: str, quote_currency: str
+    ) -> Optional[ForexRate]:
+        """Get current forex exchange rate"""
+        return await self.provider.get_forex_rate(base_currency, quote_currency)
+
+    # Phase 2 - Commodity Prices
+    async def get_commodity_price(self, commodity_name: str) -> Optional[CommodityPrice]:
+        """Get current commodity price"""
+        return await self.provider.get_commodity_price(commodity_name)
+
+    # Phase 2 - Historical Commodity Prices
+    async def get_historical_commodity_prices(
         self, 
-        contract_symbol: str
-    ) -> Optional[OptionQuote]:
-        return await self._adapter.get_option_quote(contract_symbol)
+        commodity_name: str, 
+        date_from: Optional[date] = None, 
+        date_to: Optional[date] = None, 
+        frequency: Optional[str] = None
+    ) -> Optional[HistoricalCommodityPriceData]:
+        """Get historical commodity prices"""
+        return await self.provider.get_historical_commodity_prices(
+            commodity_name, date_from, date_to, frequency
+        )
 
-    async def get_forex_quote(self, base_currency: str, quote_currency: str) -> Optional[ForexQuote]:
-        return await self._adapter.get_forex_quote(base_currency, quote_currency)
-
-    async def get_crypto_quote(self, base_asset: str, quote_asset: str) -> Optional[CryptoQuote]:
-        return await self._adapter.get_crypto_quote(base_asset, quote_asset)
-
-    async def get_index_quote(self, symbol: str, exchange: Optional[str] = None) -> Optional[IndexQuote]:
-        return await self._adapter.get_index_quote(symbol, exchange)
-    
-    async def get_market_movers(
+    # Phase 2 - Company Ratings
+    async def get_company_ratings(
         self, 
-        market_segment: str,
-        top_n: int = 10,
-        exchange: Optional[str] = None
-    ) -> List[MarketMover]:
-        return await self._adapter.get_market_movers(market_segment, top_n, exchange)
+        ticker: str, 
+        date_from: Optional[date] = None, 
+        date_to: Optional[date] = None, 
+        rated: Optional[str] = None
+    ) -> Optional[CompanyRatingData]:
+        """Get company analyst ratings"""
+        return await self.provider.get_company_ratings(
+            ticker, date_from, date_to, rated
+        )
 
-    async def search_symbols(self, query: str, asset_type: Optional[MarketAssetType] = None, limit: int = 10) -> List[CompanyProfile]:
-        return await self._adapter.search_symbols(query, asset_type, limit)
+    # Phase 2 - Stock Market Index Listing
+    async def list_stock_market_indexes(
+        self, 
+        limit: int = 100, 
+        offset: int = 0
+    ) -> List[IndexBasicInfo]:
+        """Get a list of all available stock market indexes/benchmarks"""
+        return await self.provider.list_stock_market_indexes(limit, offset)
 
-    async def close_adapter(self):
-        """
-        Closes the underlying adapter's resources, like HTTP client sessions.
-        This should be called when the service is done, e.g., on application shutdown.
-        """
-        if hasattr(self._adapter, 'close') and callable(self._adapter.close):
-            await self._adapter.close()
-            print(f"MarketDataService adapter ({self.provider_name}) closed.")
-        else:
-            print(f"MarketDataService adapter ({self.provider_name}) does not have a close method or it is not callable.")
+    # Phase 2 - Bonds Data
+    async def list_bond_countries(
+        self, 
+        limit: int = 100, 
+        offset: int = 0
+    ) -> List[BondCountry]:
+        """Get a list of bond-issuing countries"""
+        return await self.provider.list_bond_countries(limit, offset)
+
+    async def get_bond_info(self, country: str) -> Optional[BondInfoData]:
+        """Get specific bond info for a country"""
+        return await self.provider.get_bond_info(country)
+
+    # Phase 2 - ETF Data
+    async def list_etfs(
+        self, 
+        limit: int = 100, 
+        offset: int = 0
+    ) -> List[ETFTicker]:
+        """Get a list of ETFs"""
+        return await self.provider.list_etfs(limit, offset)
+
+    async def get_etf_holdings(
+        self, 
+        ticker: str, 
+        date_from: Optional[date] = None, 
+        date_to: Optional[date] = None
+    ) -> Optional[ETFHoldingDetails]:
+        """Get detailed ETF holdings"""
+        return await self.provider.get_etf_holdings(ticker, date_from, date_to)

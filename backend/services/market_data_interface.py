@@ -14,7 +14,16 @@ from backend.schemas.market_data import (
     CryptoQuote,
     IndexQuote,
     MarketMover,
-    MarketAssetType
+    MarketAssetType,
+    # Phase 2 additions
+    CommodityPrice,
+    HistoricalCommodityPriceData,
+    CompanyRatingData,
+    IndexBasicInfo,
+    BondCountry,
+    BondInfoData,
+    ETFTicker,
+    ETFHoldingDetails
 )
 
 class MarketDataServiceInterface(ABC):
@@ -118,4 +127,67 @@ class MarketDataServiceInterface(ABC):
     @abstractmethod
     async def search_symbols(self, query: str, asset_type: Optional[MarketAssetType] = None, limit: int = 10) -> List[CompanyProfile]:
         """Search for symbols/companies based on a query string."""
+        pass
+
+    # Phase 2 - Commodity Prices
+    @abstractmethod
+    async def get_commodity_price(self, commodity_name: str) -> Optional[CommodityPrice]:
+        """Fetch current commodity price."""
+        pass
+
+    # Phase 2 - Historical Commodity Prices
+    @abstractmethod
+    async def get_historical_commodity_prices(
+        self, 
+        commodity_name: str, 
+        date_from: Optional[date] = None, 
+        date_to: Optional[date] = None, 
+        frequency: Optional[str] = None
+    ) -> Optional[HistoricalCommodityPriceData]:
+        """Fetch historical commodity prices."""
+        pass
+
+    # Phase 2 - Company Ratings
+    @abstractmethod
+    async def get_company_ratings(
+        self, 
+        ticker: str, 
+        date_from: Optional[date] = None, 
+        date_to: Optional[date] = None, 
+        rated: Optional[str] = None
+    ) -> Optional[CompanyRatingData]:
+        """Fetch company analyst ratings."""
+        pass
+
+    # Phase 2 - Stock Market Index Listing
+    @abstractmethod
+    async def list_stock_market_indexes(self, limit: int = 100, offset: int = 0) -> List[IndexBasicInfo]:
+        """Fetch a list of all available stock market indexes/benchmarks."""
+        pass
+
+    # Phase 2 - Bonds Data
+    @abstractmethod
+    async def list_bond_countries(self, limit: int = 100, offset: int = 0) -> List[BondCountry]:
+        """Fetch list of bond-issuing countries."""
+        pass
+
+    @abstractmethod
+    async def get_bond_info(self, country: str) -> Optional[BondInfoData]:
+        """Fetch specific bond info for a country."""
+        pass
+
+    # Phase 2 - ETF Data
+    @abstractmethod
+    async def list_etfs(self, limit: int = 100, offset: int = 0) -> List[ETFTicker]:
+        """Fetch a list of ETFs."""
+        pass
+
+    @abstractmethod
+    async def get_etf_holdings(
+        self, 
+        ticker: str, 
+        date_from: Optional[date] = None, 
+        date_to: Optional[date] = None
+    ) -> Optional[ETFHoldingDetails]:
+        """Fetch detailed ETF holdings."""
         pass

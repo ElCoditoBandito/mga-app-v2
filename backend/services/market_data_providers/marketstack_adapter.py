@@ -1,192 +1,524 @@
-# backend/services/market_data_providers/marketstack_adapter.py
-import httpx
 import os
-import logging # Import logging
-from typing import List, Optional, Dict, Any
-from datetime import date, datetime, timezone
-from backend.services.market_data_interface import MarketDataServiceInterface
+from datetime import date, datetime
+from typing import Dict, List, Optional, Any, cast
+
+import httpx
+from fastapi import HTTPException
+
 from backend.schemas.market_data import (
-    CompanyAddress,
-    StockExchangeInfo,
+    # Phase 1 detailed schemas
     EquityQuote,
     HistoricalPricePoint,
+    IntradayPricePoint,
     CompanyProfile,
+    StockExchangeInfo,
+    CompanyAddress,
     KeyExecutive,
     DividendData,
-    StockSplitData, 
+    StockSplitData,
+    MarketAssetType,
     OptionQuote,
     ForexQuote,
     CryptoQuote,
     IndexQuote,
     MarketMover,
-    MarketAssetType,
-    MarketTradingStatus,
-    MarketDataError
+    # Phase 2 additions
+    CommodityPrice,
+    HistoricalCommodityPriceData,
+    CommodityPricePoint,
+    CommodityBasics,
+    CompanyRatingData,
+    CompanyRatingResult,
+    CompanyBasics,
+    CompanyRatingOutput,
+    AnalystConsensus,
+    AnalystRatingDetail,
+    IndexBasicInfo,
+    BondCountry,
+    BondInfoData,
+    ETFTicker,
+    ETFHoldingDetails,
+    ETFBasics,
+    ETFOutput,
+    ETFAttributes,
+    ETFSignature,
+    SectorWeight,
+    ETFHolding
 )
+from backend.services.market_data_interface import MarketDataServiceInterface
 
-logger = logging.getLogger(__name__) # Create a logger for this module
-
-MARKET_STACK_API_KEY = os.getenv("MARKET_STACK_API_KEY")
-MARKET_STACK_BASE_URL = "https://api.marketstack.com/v2" # Updated to v2
 
 class MarketStackAdapter(MarketDataServiceInterface):
-    def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or MARKET_STACK_API_KEY
-        if not self.api_key:
-            logger.error("MarketStack API key is required but not found.")
-            raise ValueError("MarketStack API key is required.")
-        self.client = httpx.AsyncClient(base_url=MARKET_STACK_BASE_URL, timeout=10.0)
-        logger.info(f"MarketStackAdapter initialized with base URL: {MARKET_STACK_BASE_URL}")
+    """Adapter for MarketStack API V2"""
 
-    async def _request(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Any:
+    def __init__(self):
+        self.api_key = os.environ.get("MARKETSTACK_API_KEY")
         if not self.api_key:
-            logger.error("MarketStack API key not configured at time of request.")
-            raise MarketDataError(message="MarketStack API key not configured.", provider="MarketStack")
-
-        all_params = params.copy() if params else {}
-        all_params["access_key"] = self.api_key
+            raise ValueError("MARKETSTACK_API_KEY environment variable not set")
         
-        logger.debug(f"MarketStack request: Endpoint={endpoint}, Params={all_params.get('symbols') or all_params.get('ticker') or 'N/A'}")
+        self.base_url = "https://api.marketstack.com/v2"
+        self.client = httpx.AsyncClient(timeout=30.0)  # 30 second timeout
 
+    async def _make_request(self, endpoint: str, params: Dict[str, Any] = None) -> Dict:
+        """Make a request to the MarketStack API"""
+        if params is None:
+            params = {}
+        
+        # Add API key to params
+        params["access_key"] = self.api_key
+        
+        url = f"{self.base_url}{endpoint}"
+        
         try:
-            response = await self.client.get(endpoint, params=all_params)
+            response = await self.client.get(url, params=params)
             response.raise_for_status()
             return response.json()
-        except httpx.TimeoutException as e:
-            logger.warning(f"MarketStack request timed out for endpoint {endpoint}: {e}")
-            raise MarketDataError(message=f"MarketStack request timed out: {e}", provider="MarketStack")
         except httpx.HTTPStatusError as e:
-            error_details = "No specific error details from provider."
-            error_code_from_provider = str(e.response.status_code)
-            try:
-                error_data = e.response.json()
-                if "error" in error_data:
-                    err_obj = error_data["error"]
-                    error_details = err_obj.get("message", error_details)
-                    error_code_from_provider = err_obj.get("code", error_code_from_provider)
-                    if "context" in err_obj:
-                        error_details += f" Context: {err_obj['context']}"
-            except Exception as parse_exc:
-                logger.warning(f"Failed to parse MarketStack error response body: {parse_exc}")
-            
-            logger.warning(
-                f"MarketStack API error: Status={e.response.status_code}, Code={error_code_from_provider}, Details={error_details} for endpoint {endpoint}"
-            )
-            raise MarketDataError(
-                message=f"MarketStack API error: {e.response.status_code} - {error_details}",
-                provider="MarketStack",
-                errorCode=error_code_from_provider
-            )
+            if e.response.status_code == 429:
+                raise HTTPException(
+                    status_code=429, 
+                    detail="Rate limit exceeded for market data provider"
+                )
+            elif e.response.status_code == 401:
+                raise HTTPException(
+                    status_code=401, 
+                    detail="Unauthorized access to market data provider"
+                )
+            else:
+                raise HTTPException(
+                    status_code=e.response.status_code,
+                    detail=f"Market data provider error: {e.response.text}"
+                )
         except httpx.RequestError as e:
-            logger.error(f"Error connecting to MarketStack for endpoint {endpoint}: {e}")
-            raise MarketDataError(message=f"Error connecting to MarketStack: {e}", provider="MarketStack")
-        except Exception as e:
-            logger.exception(f"An unexpected error occurred with MarketStack for endpoint {endpoint}: {e}")
-            raise MarketDataError(message=f"An unexpected error occurred with MarketStack: {str(e)}", provider="MarketStack")
+            raise HTTPException(
+                status_code=503,
+                detail=f"Market data provider request failed: {str(e)}"
+            )
 
-    def _parse_iso_datetime(self, date_str: Optional[str]) -> Optional[datetime]:
-        if not date_str:
-            return None
+
+    async def get_index_quote(self, symbol: str) -> Optional[IndexQuote]:
+        """Get current quote for a market index"""
         try:
-            if '+' in date_str and date_str.endswith("+0000"):
-                date_str = date_str.replace("+0000", "+00:00")
-            elif ' ' in date_str and ':' in date_str and '.' not in date_str and '+' not in date_str and 'Z' not in date_str.upper():
-                date_str = date_str.replace(" ", "T") + "Z"
-            return datetime.fromisoformat(date_str)
-        except ValueError as ve:
-            logger.warning(f"Could not parse date string '{date_str}': {ve}")
-            try: 
-                return datetime.combine(date.fromisoformat(date_str.split('T')[0]), datetime.min.time(), tzinfo=timezone.utc)
-            except ValueError:
-                 logger.error(f"Completely failed to parse date string '{date_str}'")
-                 return None
-
-    def _map_eod_item_to_historical_price_point(self, item: Dict[str, Any]) -> HistoricalPricePoint:
-        dt_object = self._parse_iso_datetime(item.get("date"))
-        if not dt_object:
-            logger.error(f"Historical data point for symbol {item.get('symbol')} has invalid date: {item.get('date')}. Skipping.")
-            raise ValueError(f"Invalid date in historical data: {item.get('date')}") 
-
-        return HistoricalPricePoint(
-            date=dt_object,
-            open=item["open"],
-            high=item["high"],
-            low=item["low"],
-            close=item["close"],
-            adj_high=item.get("adj_high"),
-            adj_low=item.get("adj_low"),
-            adj_open=item.get("adj_open"),
-            adj_close=item.get("adj_close"),
-            adj_volume=item.get("adj_volume"),
-            volume=int(item["volume"]) if item.get("volume") is not None else 0,
-            split_factor=item.get("split_factor"),
-            dividend=item.get("dividend"),
-            symbol_from_eod=item.get("symbol"),
-            exchange_mic_from_eod=item.get("exchange"),
-            name_from_eod=item.get("name"),
-            asset_type_from_eod=item.get("asset_type"),
-            price_currency_from_eod=item.get("price_currency")
-        )
-
-    def _map_eod_item_to_equity_quote(self, item: Dict[str, Any], symbol_override: Optional[str] = None) -> EquityQuote:
-        timestamp = self._parse_iso_datetime(item.get("date")) or datetime.now(timezone.utc)
-        symbol_to_use = item.get("symbol", symbol_override or "UNKNOWN")
-        
-        stock_ex_info = StockExchangeInfo(
-            mic=item.get("exchange"),
-            acronym=item.get("exchange_code")
-        )
-
-        change = item.get("adj_close", item["close"]) - item.get("adj_open", item["open"]) if item.get("adj_open") is not None and item.get("adj_close") is not None else 0
-        percent_change = (change / item["adj_open"]) * 100 if item.get("adj_open") and item["adj_open"] != 0 else 0
-
-        return EquityQuote(
-            symbol=symbol_to_use,
-            name=item.get("name"),
-            stock_exchange_info=stock_ex_info,
-            asset_type=MarketAssetType(item["asset_type"].upper()) if item.get("asset_type") else MarketAssetType.STOCK,
-            currency=item.get("price_currency"),
-            price=item["close"], 
-            change=change,
-            percentChange=percent_change,
-            previousClose=item.get("adj_open"),
-            open=item["open"],
-            high=item["high"],
-            low=item["low"],
-            volume=int(item["volume"]) if item.get("volume") is not None else None,
-            adj_close=item.get("adj_close"),
-            adj_open=item.get("adj_open"),
-            timestamp=timestamp,
-            marketCap=None, 
-            yearHigh=None, 
-            yearLow=None,
-            averageVolume=None,
-            tradingStatus=None,
-            eps=None, peRatio=None, beta=None, fiftyTwoWeekHigh=None, fiftyTwoWeekLow=None, priceAvg50=None, priceAvg200=None, sharesOutstanding=None, earningDate=None,
-            dividend_eod=item.get("dividend"),
-            split_factor_eod=item.get("split_factor")
-        )
-
-    async def get_equity_quote(self, symbol: str, exchange: Optional[str] = None) -> Optional[EquityQuote]:
-        symbol_to_use = f"{symbol}.{exchange}" if exchange else symbol
-        endpoint = f"/tickers/{symbol_to_use}/eod/latest"
-        logger.info(f"Fetching latest EOD equity quote for {symbol_to_use} from MarketStack v2 using endpoint: {endpoint}")
-
-        try:
-            response_data = await self._request(endpoint=endpoint) 
+            response = await self._make_request(
+                "/indexinfo", {"benchmark": symbol}
+            )
             
-            if response_data:
-                eod_data_list = response_data.get("data", []) if isinstance(response_data, dict) and "data" in response_data else []
-                if eod_data_list and isinstance(eod_data_list, list) and len(eod_data_list) > 0:
-                    actual_eod_item = eod_data_list[0]
-                    return self._map_eod_item_to_equity_quote(actual_eod_item, symbol_override=symbol)
-                else:
-                    logger.warning(f"No EOD data found in response for equity quote {symbol_to_use}. Response: {response_data}")
-                    return None
-            logger.warning(f"Empty or unexpected response for equity quote {symbol_to_use} from MarketStack v2. Response: {response_data}")
+            if response.get("status") != "ok" or not response.get("result"):
+                return None
+            
+            result = response["result"]
+            
+            return IndexQuote(
+                symbol=symbol,
+                name=result.get("basics", {}).get("name", "Unknown"),
+                price=float(result.get("last", 0)),
+                change=float(result.get("change_dollar", 0)),
+                percent_change=float(result.get("change_percent", 0)),
+                timestamp=datetime.fromisoformat(result.get("date", "").replace("Z", "+00:00"))
+            )
+        except Exception as e:
+            print(f"Error fetching index quote: {e}")
             return None
-        except MarketDataError as e:
-            logger.error(f"MarketStack get_equity_quote error for {symbol}: {e.message}")
+
+
+    # Phase 2 - Commodity Prices
+    async def get_commodity_price(self, commodity_name: str) -> Optional[CommodityPrice]:
+        """Get current commodity price"""
+        try:
+            response = await self._make_request(
+                "/commodities", {"commodity_name": commodity_name}
+            )
+            
+            if response.get("status") != "ok" or not response.get("result"):
+                return None
+            
+            result = response["result"]
+            basics = result.get("basics", {})
+            
+            return CommodityPrice(
+                commodity_name=basics.get("commodity_name", commodity_name),
+                commodity_unit=basics.get("commodity_unit", ""),
+                commodity_price=float(result.get("commodity_price", 0)),
+                price_change_day=float(result.get("price_change_day", 0)),
+                percentage_day=float(result.get("percentage_day", 0)),
+                percentage_week=float(result.get("percentage_week", 0)),
+                percentage_month=float(result.get("percentage_month", 0)),
+                percentage_year=float(result.get("percentage_year", 0)),
+                quarter1_25=float(result.get("quarter1_25", 0)),
+                quarter2_25=float(result.get("quarter2_25", 0)),
+                quarter3_25=float(result.get("quarter3_25", 0)),
+                quarter4_25=float(result.get("quarter4_25", 0)),
+                quarter1_24=float(result.get("quarter1_24", 0)),
+                quarter2_24=float(result.get("quarter2_24", 0)),
+                quarter3_24=float(result.get("quarter3_24", 0)),
+                quarter4_24=float(result.get("quarter4_24", 0)),
+                quarter1_23=float(result.get("quarter1_23", 0)),
+                quarter2_23=float(result.get("quarter2_23", 0)),
+                quarter3_23=float(result.get("quarter3_23", 0)),
+                quarter4_23=float(result.get("quarter4_23", 0)),
+                datetime=datetime.fromisoformat(result.get("datetime", "").replace("Z", "+00:00"))
+            )
+        except Exception as e:
+            print(f"Error fetching commodity price: {e}")
+            return None
+
+    # Phase 2 - Historical Commodity Prices
+    async def get_historical_commodity_prices(
+        self, 
+        commodity_name: str, 
+        date_from: Optional[date] = None, 
+        date_to: Optional[date] = None, 
+        frequency: Optional[str] = None
+    ) -> Optional[HistoricalCommodityPriceData]:
+        """Get historical commodity prices"""
+        params = {"commodity_name": commodity_name}
+        
+        if date_from:
+            params["date_from"] = date_from.isoformat()
+        if date_to:
+            params["date_to"] = date_to.isoformat()
+        if frequency:
+            params["frequency"] = frequency
+        
+        try:
+            response = await self._make_request("/commoditieshistory", params)
+            
+            if response.get("status") != "ok" or not response.get("result"):
+                return None
+            
+            result = response["result"]
+            basics = result.get("basics", {})
+            
+            data_points = []
+            for point in result.get("data", []):
+                data_points.append(
+                    CommodityPricePoint(
+                        commodity_price=float(point.get("commodity_price", 0)),
+                        date=datetime.fromisoformat(point.get("date", "").replace("Z", "+00:00"))
+                    )
+                )
+            
+            return HistoricalCommodityPriceData(
+                basics=CommodityBasics(
+                    commodity_name=basics.get("commodity_name", commodity_name),
+                    commodity_unit=basics.get("commodity_unit", "")
+                ),
+                data=data_points
+            )
+        except Exception as e:
+            print(f"Error fetching historical commodity prices: {e}")
+            return None
+
+    # Phase 2 - Company Ratings
+    async def get_company_ratings(
+        self, 
+        ticker: str, 
+        date_from: Optional[date] = None, 
+        date_to: Optional[date] = None, 
+        rated: Optional[str] = None
+    ) -> Optional[CompanyRatingData]:
+        """Get company analyst ratings"""
+        params = {"ticker": ticker}
+        
+        if date_from:
+            params["date_from"] = date_from.isoformat()
+        if date_to:
+            params["date_to"] = date_to.isoformat()
+        if rated:
+            params["rated"] = rated
+        
+        try:
+            response = await self._make_request("/companyratings", params)
+            
+            if response.get("status") != "ok" or not response.get("result"):
+                return None
+            
+            result = response["result"]
+            basics = result.get("basics", {})
+            output = result.get("output", {})
+            consensus = output.get("analyst_consensus", {})
+            analysts_data = output.get("analysts", [])
+            
+            analysts = []
+            for analyst in analysts_data:
+                analysts.append(
+                    AnalystRatingDetail(
+                        analyst_name=analyst.get("analyst_name", ""),
+                        analyst_rating=analyst.get("analyst_rating", ""),
+                        target_price=float(analyst.get("target_price", 0)),
+                        rating_date=datetime.fromisoformat(analyst.get("rating_date", "").replace("Z", "+00:00"))
+                    )
+                )
+            
+            return CompanyRatingData(
+                status=response.get("status", ""),
+                result=CompanyRatingResult(
+                    basics=CompanyBasics(
+                        ticker=basics.get("ticker", ticker),
+                        name=basics.get("name", ""),
+                        exchange=basics.get("exchange", "")
+                    ),
+                    output=CompanyRatingOutput(
+                        analyst_consensus=AnalystConsensus(
+                            buy=int(consensus.get("buy", 0)),
+                            hold=int(consensus.get("hold", 0)),
+                            sell=int(consensus.get("sell", 0)),
+                            average_rating=float(consensus.get("average_rating", 0)),
+                            average_target_price=float(consensus.get("average_target_price", 0)),
+                            high_target_price=float(consensus.get("high_target_price", 0)),
+                            low_target_price=float(consensus.get("low_target_price", 0)),
+                            median_target_price=float(consensus.get("median_target_price", 0))
+                        ),
+                        analysts=analysts
+                    )
+                )
+            )
+        except Exception as e:
+            print(f"Error fetching company ratings: {e}")
+            return None
+
+    # Phase 2 - Stock Market Index Listing
+    async def list_stock_market_indexes(self, limit: int = 100, offset: int = 0) -> List[IndexBasicInfo]:
+        """Get a list of all available stock market indexes/benchmarks"""
+        params = {"limit": limit, "offset": offset}
+        
+        try:
+            response = await self._make_request("/benchmarks", params)
+            
+            if response.get("status") != "ok" or not response.get("result"):
+                return []
+            
+            result = response["result"]
+            indexes = []
+            
+            for index_data in result:
+                indexes.append(
+                    IndexBasicInfo(
+                        benchmark=index_data.get("benchmark", ""),
+                        name=index_data.get("name", ""),
+                        country=index_data.get("country", ""),
+                        currency=index_data.get("currency", "")
+                    )
+                )
+            
+            return indexes
+        except Exception as e:
+            print(f"Error fetching stock market indexes: {e}")
+            return []
+
+    # Phase 2 - Bonds Data
+    async def list_bond_countries(self, limit: int = 100, offset: int = 0) -> List[BondCountry]:
+        """Get a list of bond-issuing countries"""
+        params = {"limit": limit, "offset": offset}
+        
+        try:
+            response = await self._make_request("/bondslist", params)
+            
+            if response.get("status") != "ok" or not response.get("result"):
+                return []
+            
+            result = response["result"]
+            countries = []
+            
+            for country_data in result:
+                countries.append(
+                    BondCountry(
+                        country=country_data.get("country", "")
+                    )
+                )
+            
+            return countries
+        except Exception as e:
+            print(f"Error fetching bond countries: {e}")
+            return []
+
+    async def get_bond_info(self, country: str) -> Optional[BondInfoData]:
+        """Get specific bond info for a country"""
+        try:
+            response = await self._make_request(
+                "/bond", {"country": country}
+            )
+            
+            if response.get("status") != "ok" or not response.get("result"):
+                return None
+            
+            result = response["result"]
+            
+            return BondInfoData(
+                region=result.get("region", ""),
+                country=result.get("country", country),
+                type=result.get("type", ""),
+                yield_value=float(result.get("yield", 0)),
+                price_change_day=float(result.get("price_change_day", 0)),
+                percentage_week=float(result.get("percentage_week", 0)),
+                percentage_month=float(result.get("percentage_month", 0)),
+                percentage_year=float(result.get("percentage_year", 0)),
+                datetime=datetime.fromisoformat(result.get("datetime", "").replace("Z", "+00:00"))
+            )
+        except Exception as e:
+            print(f"Error fetching bond info: {e}")
+            return None
+
+    # Phase 2 - ETF Data
+    async def list_etfs(self, limit: int = 100, offset: int = 0) -> List[ETFTicker]:
+        """Get a list of ETFs"""
+        params = {"list": "ticker", "limit": limit, "offset": offset}
+        
+        try:
+            response = await self._make_request("/etflist", params)
+            
+            if response.get("status") != "ok" or not response.get("result"):
+                return []
+            
+            result = response["result"]
+            etfs = []
+            
+            for etf_data in result:
+                etfs.append(
+                    ETFTicker(
+                        ticker=etf_data.get("ticker", "")
+                    )
+                )
+            
+            return etfs
+        except Exception as e:
+            print(f"Error fetching ETF list: {e}")
+            return []
+
+    async def get_etf_holdings(
+        self, 
+        ticker: str, 
+        date_from: Optional[date] = None, 
+        date_to: Optional[date] = None
+    ) -> Optional[ETFHoldingDetails]:
+        """Get detailed ETF holdings"""
+        params = {"ticker": ticker}
+        
+        if date_from:
+            params["date_from"] = date_from.isoformat()
+        if date_to:
+            params["date_to"] = date_to.isoformat()
+        
+        try:
+            response = await self._make_request("/etfholdings", params)
+            
+            if response.get("status") != "ok" or not response.get("result"):
+                return None
+            
+            result = response["result"]
+            basics = result.get("basics", {})
+            output = result.get("output", {})
+            attributes = output.get("attributes", {})
+            signature = output.get("signature", {})
+            holdings_data = output.get("holdings", [])
+            
+            # Process sector weights
+            sector_weights = []
+            for sector in signature.get("sector_weights", []):
+                sector_weights.append(
+                    SectorWeight(
+                        sector=sector.get("sector", ""),
+                        weight=float(sector.get("weight", 0))
+                    )
+                )
+            
+            # Process holdings
+            holdings = []
+            for holding in holdings_data:
+                holdings.append(
+                    ETFHolding(
+                        ticker=holding.get("ticker", ""),
+                        name=holding.get("name", ""),
+                        weight=float(holding.get("weight", 0)),
+                        shares=int(holding.get("shares", 0)),
+                        market_value=float(holding.get("market_value", 0))
+                    )
+                )
+            
+            return ETFHoldingDetails(
+                basics=ETFBasics(
+                    ticker=basics.get("ticker", ticker),
+                    name=basics.get("name", ""),
+                    exchange=basics.get("exchange", "")
+                ),
+                output=ETFOutput(
+                    attributes=ETFAttributes(
+                        aum=float(attributes.get("aum", 0)),
+                        expense_ratio=float(attributes.get("expense_ratio", 0)),
+                        shares_outstanding=float(attributes.get("shares_outstanding", 0)),
+                        nav=float(attributes.get("nav", 0))
+                    ),
+                    signature=ETFSignature(
+                        sector_weights=sector_weights
+                    ),
+                    holdings=holdings
+                )
+            )
+        except Exception as e:
+            print(f"Error fetching ETF holdings: {e}")
+            return None
+
+    # Implement other required methods from MarketDataServiceInterface
+    async def get_equity_quote(self, symbol: str, exchange: Optional[str] = None) -> Optional[EquityQuote]:
+        """
+        Get current equity quote for a symbol using the latest EOD data
+        Uses MarketStack's /tickers/{symbol}/eod/latest or /eod endpoint
+        """
+        try:
+            # Construct the endpoint and params
+            endpoint = f"/tickers/{symbol}/eod/latest" if exchange is None else "/eod"
+            params = {}
+            
+            if exchange:
+                params["symbols"] = symbol
+                params["exchange"] = exchange
+            
+            response = await self._make_request(endpoint, params)
+            
+            # Handle different response structures based on endpoint
+            if endpoint.startswith("/tickers"):
+                # Single result from /tickers/{symbol}/eod/latest
+                if not response.get("data"):
+                    return None
+                
+                data = response["data"]
+                # If data is a list, take the first item
+                if isinstance(data, list) and len(data) > 0:
+                    data = data[0]
+            else:
+                # Multiple results from /eod
+                if not response.get("data") or len(response["data"]) == 0:
+                    return None
+                
+                # Take the most recent data point
+                data = response["data"][0]
+            
+            # Calculate change and percent_change
+            change = 0.0
+            percent_change = 0.0
+            
+            # Map the response to EquityQuote schema
+            return EquityQuote(
+                symbol=symbol,
+                name=data.get("name", "Unknown"),
+                exchange=data.get("exchange", "Unknown"),
+                price=float(data.get("adj_close", 0)),
+                change=change,  # Would need previous day's close to calculate
+                percent_change=percent_change,  # Would need previous day's close to calculate
+                volume=int(data.get("volume", 0)),
+                timestamp=datetime.fromisoformat(data.get("date", "").replace("Z", "+00:00")),
+                open=float(data.get("open", 0)),
+                high=float(data.get("high", 0)),
+                low=float(data.get("low", 0)),
+                adj_open=float(data.get("adj_open", 0)),
+                adj_close=float(data.get("adj_close", 0)),
+                dividend=float(data.get("dividend", 0)) if data.get("dividend") is not None else None,
+                split_factor=float(data.get("split_factor", 1.0)) if data.get("split_factor") is not None else None,
+                asset_type=data.get("asset_type", "Stock"),
+                price_currency=data.get("price_currency", "USD").lower()
+            )
+        except Exception as e:
+            print(f"Error fetching equity quote: {e}")
             return None
 
     async def get_historical_price_data(
@@ -196,330 +528,393 @@ class MarketStackAdapter(MarketDataServiceInterface):
         to_date: date,
         exchange: Optional[str] = None
     ) -> List[HistoricalPricePoint]:
-        symbol_to_use = f"{symbol}.{exchange}" if exchange else symbol
+        """
+        Get historical price data for a symbol
+        Uses MarketStack's /eod endpoint
+        """
         params = {
-            "symbols": symbol_to_use,
+            "symbols": symbol,
             "date_from": from_date.isoformat(),
             "date_to": to_date.isoformat(),
-            "sort": "ASC"
+            "sort": "ASC"  # Sort by date ascending
         }
-        endpoint = "/eod"
-        logger.info(f"Fetching historical EOD for {symbol_to_use} from MarketStack v2 ({from_date} to {to_date})")
+        
+        if exchange:
+            params["exchange"] = exchange
+        
         try:
-            data = await self._request(endpoint=endpoint, params=params)
-            if data and "data" in data and data["data"]:
-                return [self._map_eod_item_to_historical_price_point(item) for item in data["data"]]
-            return []
-        except MarketDataError as e:
-            logger.error(f"MarketStack get_historical_price_data error for {symbol}: {e.message}")
-            return []
-        except ValueError as ve:
-            logger.error(f"Error mapping historical price data for {symbol}: {ve}")
+            response = await self._make_request("/eod", params)
+            
+            if not response.get("data"):
+                return []
+            
+            historical_data = []
+            for point in response["data"]:
+                historical_data.append(
+                    HistoricalPricePoint(
+                        date=datetime.fromisoformat(point.get("date", "").replace("Z", "+00:00")),
+                        open=float(point.get("open", 0)),
+                        high=float(point.get("high", 0)),
+                        low=float(point.get("low", 0)),
+                        close=float(point.get("close", 0)),
+                        volume=int(point.get("volume", 0)),
+                        adj_high=float(point.get("adj_high", 0)),
+                        adj_low=float(point.get("adj_low", 0)),
+                        adj_open=float(point.get("adj_open", 0)),
+                        adj_close=float(point.get("adj_close", 0)),
+                        adj_volume=int(point.get("adj_volume", 0)),
+                        split_factor=float(point.get("split_factor", 1.0)),
+                        dividend=float(point.get("dividend", 0)),
+                        symbol=symbol,
+                        exchange=point.get("exchange", ""),
+                        name=point.get("name", ""),
+                        asset_type=point.get("asset_type", "Stock"),
+                        price_currency=point.get("price_currency", "usd")
+                    )
+                )
+            
+            return historical_data
+        except Exception as e:
+            print(f"Error fetching historical price data: {e}")
             return []
 
-    def _map_ticker_info_to_company_profile(self, item: Dict[str, Any]) -> CompanyProfile:
-        addr = item.get("address", {}) 
-        fte_value = item.get("full_time_employees")
-        fte_str: Optional[str] = str(fte_value) if fte_value is not None else None
-
-        address_obj = None
-        if isinstance(addr, dict):
-            address_obj = CompanyAddress(
-                street1=addr.get("street1"),
-                street2=addr.get("street2"),
-                city=addr.get("city"),
-                state_or_country=addr.get("stateOrCountry"),
-                postal_code=addr.get("postal_code"),
-                state_or_country_description=addr.get("stateOrCountryDescription")
-            )
-        elif isinstance(addr, str):
-            address_obj = CompanyAddress(street1=addr) 
-            logger.warning(f"Address for {item.get('ticker')} was a string, mapped to street1: {addr}")
+    async def get_intraday_price_data(
+        self,
+        symbol: str,
+        interval: str,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        exchange: Optional[str] = None
+    ) -> List[IntradayPricePoint]:
+        """
+        Get intraday price data for a symbol
+        Uses MarketStack's /intraday endpoint
+        """
+        params = {
+            "symbols": symbol,
+            "interval": interval
+        }
         
-        stock_ex_info = StockExchangeInfo(
-            acronym=item.get("exchange_code"),
-            country_code=addr.get("stateOrCountry") if isinstance(addr, dict) and addr.get("stateOrCountry") and len(addr.get("stateOrCountry")) == 2 else None,
-            name=item.get("exchange_name")
-        )
+        if exchange:
+            params["exchange"] = exchange
         
-        key_executives_list = []
-        raw_executives = item.get("key_executives", [])
-        if isinstance(raw_executives, list):
-            for exec_data in raw_executives:
-                if isinstance(exec_data, dict):
-                    key_executives_list.append(KeyExecutive(
-                        name=exec_data.get("name"),
-                        title=exec_data.get("function"),
-                        salary=exec_data.get("salary"),
-                        exercised=exec_data.get("exercised"),
-                        birth_year=exec_data.get("birth_year")
-                    ))
-
-        profile = CompanyProfile(
-            symbol=item["ticker"],
-            name=item.get("name"),
-            stock_exchange_info=stock_ex_info,
-            asset_type=MarketAssetType.STOCK,
-            currency=item.get("reporting_currency"),
-            about=item.get("about"),
-            industry=item.get("industry"),
-            sector=item.get("sector"),
-            website=item.get("website"),
-            full_time_employees=fte_str,
-            ipo_date=self._parse_iso_datetime(item.get("ipo_date")).date() if self._parse_iso_datetime(item.get("ipo_date")) else None,
-            date_founded=self._parse_iso_datetime(item.get("date_founded")).date() if self._parse_iso_datetime(item.get("date_founded")) else None,
-            address_details=address_obj,
-            phone_number=item.get("phone"),
-            key_executives=key_executives_list if key_executives_list else None,
-            item_type=item.get("item_type"),
-            incorporation_state=item.get("incorporation_description"),
-            fiscal_year_end=item.get("end_fiscal"),
-            ein=item.get("ein_employer_id"),
-            isin=None, 
-            cusip=None,
-            cik=None, 
-            lei=None, 
-            sic_code=None, 
-            sic_name=None
-        )
-        logger.debug(f"Mapped company profile for {item.get('ticker')} from /tickerinfo")
-        return profile
+        if from_date:
+            params["date_from"] = from_date.isoformat()
+        
+        if to_date:
+            params["date_to"] = to_date.isoformat()
+        
+        try:
+            response = await self._make_request("/intraday", params)
+            
+            if not response.get("data"):
+                return []
+            
+            intraday_data = []
+            for point in response["data"]:
+                intraday_data.append(
+                    IntradayPricePoint(
+                        date=datetime.fromisoformat(point.get("date", "").replace("Z", "+00:00")),
+                        open=float(point.get("open", 0)),
+                        high=float(point.get("high", 0)),
+                        low=float(point.get("low", 0)),
+                        close=float(point.get("close", 0)),
+                        volume=float(point.get("volume", 0)),
+                        symbol=symbol,
+                        exchange=point.get("exchange", ""),
+                        mid=float(point.get("mid")) if point.get("mid") is not None else None,
+                        last_size=int(point.get("last_size")) if point.get("last_size") is not None else None,
+                        bid_size=float(point.get("bid_size")) if point.get("bid_size") is not None else None,
+                        bid_price=float(point.get("bid_price")) if point.get("bid_price") is not None else None,
+                        ask_price=float(point.get("ask_price")) if point.get("ask_price") is not None else None,
+                        ask_size=float(point.get("ask_size")) if point.get("ask_size") is not None else None,
+                        last=float(point.get("last")) if point.get("last") is not None else None,
+                        marketstack_last=float(point.get("marketstack_last")) if point.get("marketstack_last") is not None else None
+                    )
+                )
+            
+            return intraday_data
+        except Exception as e:
+            print(f"Error fetching intraday price data: {e}")
+            return []
 
     async def get_company_profile(self, symbol: str, exchange: Optional[str] = None) -> Optional[CompanyProfile]:
-        params = {"ticker": symbol}
-        logger.info(f"Fetching company profile for {symbol} from MarketStack v2 using /tickerinfo")
+        """
+        Get company profile information
+        Uses MarketStack's /tickerinfo and /tickers/{symbol} endpoints
+        """
         try:
-            data = await self._request(endpoint="/tickerinfo", params=params)
-            if data and "data" in data and isinstance(data["data"], dict):
-                ticker_info_data = data["data"]
-                profile = self._map_ticker_info_to_company_profile(ticker_info_data)
-
-                ticker_details_data = None
-                try:
-                    ticker_endpoint = f"/tickers/{symbol}"
-                    ticker_details_data = await self._request(endpoint=ticker_endpoint) 
-                except MarketDataError as mde_ticker:
-                    logger.warning(f"Could not fetch supplementary details from /tickers/{symbol} for profile: {mde_ticker}")
-                
-                if ticker_details_data:
-                    profile.cik = ticker_details_data.get("cik", profile.cik)
-                    profile.isin = ticker_details_data.get("isin", profile.isin)
-                    profile.cusip = ticker_details_data.get("cusip", profile.cusip)
-                    profile.lei = ticker_details_data.get("lei", profile.lei)
-                    profile.sic_code = ticker_details_data.get("sic_code", profile.sic_code)
-                    profile.sic_name = ticker_details_data.get("sic_description", profile.sic_name)
-                    if ticker_details_data.get("ein_employer_id"):
-                         profile.ein = ticker_details_data.get("ein_employer_id")
-                    
-                    ms_stock_exchange = ticker_details_data.get("stock_exchange")
-                    if isinstance(ms_stock_exchange, dict):
-                        if not profile.stock_exchange_info:
-                            profile.stock_exchange_info = StockExchangeInfo()
-                        
-                        profile.stock_exchange_info.name = ms_stock_exchange.get("name", profile.stock_exchange_info.name)
-                        profile.stock_exchange_info.acronym = ms_stock_exchange.get("acronym", profile.stock_exchange_info.acronym)
-                        profile.stock_exchange_info.mic = ms_stock_exchange.get("mic", profile.stock_exchange_info.mic)
-                        profile.stock_exchange_info.country = ms_stock_exchange.get("country", profile.stock_exchange_info.country)
-                        profile.stock_exchange_info.country_code = ms_stock_exchange.get("country_code", profile.stock_exchange_info.country_code)
-                        profile.stock_exchange_info.city = ms_stock_exchange.get("city", profile.stock_exchange_info.city)
-                        profile.stock_exchange_info.website = ms_stock_exchange.get("website", profile.stock_exchange_info.website)
-                        profile.stock_exchange_info.operating_mic = ms_stock_exchange.get("operating_mic", profile.stock_exchange_info.operating_mic)
-                        profile.stock_exchange_info.oprt_sgmt = ms_stock_exchange.get("oprt_sgmt", profile.stock_exchange_info.oprt_sgmt)
-                        profile.stock_exchange_info.legal_entity_name = ms_stock_exchange.get("legal_entity_name", profile.stock_exchange_info.legal_entity_name)
-                        profile.stock_exchange_info.exchange_lei = ms_stock_exchange.get("exchange_lei", profile.stock_exchange_info.exchange_lei)
-                        profile.stock_exchange_info.market_category_code = ms_stock_exchange.get("market_category_code", profile.stock_exchange_info.market_category_code)
-                        profile.stock_exchange_info.exchange_status = ms_stock_exchange.get("exchange_status", profile.stock_exchange_info.exchange_status)
-                        profile.stock_exchange_info.comments = ms_stock_exchange.get("comments", profile.stock_exchange_info.comments)
-                        
-                        # Handling nested date objects for stock_exchange
-                        date_creation = ms_stock_exchange.get("date_creation")
-                        if isinstance(date_creation, dict):
-                            profile.stock_exchange_info.date_creation_str = date_creation.get("date")
-                        
-                        date_last_update = ms_stock_exchange.get("date_last_update")
-                        if isinstance(date_last_update, dict):
-                            profile.stock_exchange_info.date_last_update_str = date_last_update.get("date")
-
-                        date_last_validation = ms_stock_exchange.get("date_last_validation")
-                        if isinstance(date_last_validation, dict):
-                            profile.stock_exchange_info.date_last_validation_str = date_last_validation.get("date")
-
-                        profile.stock_exchange_info.date_expiry_str = ms_stock_exchange.get("date_expiry") # This might be a direct string or null
-
-                    profile.item_type = ticker_details_data.get("item_type", profile.item_type)
-                    profile.sector = ticker_details_data.get("sector", profile.sector)
-                    profile.industry = ticker_details_data.get("industry", profile.industry)
-
-                logger.debug(f"Final mapped company profile for {symbol}")
-                return profile
+            # First, get basic ticker info
+            ticker_params = {"ticker": symbol}
+            ticker_info = await self._make_request("/tickerinfo", ticker_params)
             
-            logger.warning(f"No profile data found in response for {symbol} from /tickerinfo. Response: {data}")
-            return None
-        except MarketDataError as e:
-            logger.error(f"MarketStack get_company_profile error for {symbol}: {e}")
-            return None
+            if not ticker_info.get("data"):
+                return None
+            
+            ticker_data = ticker_info["data"]
+            
+            # Get additional ticker details if available
+            additional_data = {}
+            try:
+                additional_response = await self._make_request(f"/tickers/{symbol}")
+                if additional_response:
+                    additional_data = additional_response
+            except Exception as e:
+                print(f"Error fetching additional ticker data: {e}")
+            
+            # Extract stock exchange info
+            stock_exchange = None
+            if ticker_data.get("stock_exchanges") and len(ticker_data["stock_exchanges"]) > 0:
+                exchange_data = ticker_data["stock_exchanges"][0]
+                stock_exchange = StockExchangeInfo(
+                    name=exchange_data.get("exchange_name", ""),
+                    acronym=exchange_data.get("acronym1", ""),
+                    mic=exchange_data.get("exchange_mic", ""),
+                    country=exchange_data.get("country", None),
+                    country_code=exchange_data.get("alpha2_code", None),
+                    city=exchange_data.get("city", None),
+                    website=exchange_data.get("website", None)
+                )
+            else:
+                # Create a minimal StockExchangeInfo if not available
+                stock_exchange = StockExchangeInfo(
+                    name="Unknown",
+                    acronym="",
+                    mic=""
+                )
+            
+            # Extract address details
+            address = None
+            if ticker_data.get("address"):
+                address_data = ticker_data["address"]
+                address = CompanyAddress(
+                    street1=address_data.get("street1", None),
+                    street2=address_data.get("street2", None),
+                    city=address_data.get("city", None),
+                    postal_code=address_data.get("postal_code", None),
+                    stateOrCountry=address_data.get("stateOrCountry", None),
+                    state_or_country_description=address_data.get("state_or_country_description", None)
+                )
+            
+            # Extract key executives
+            key_executives = []
+            if ticker_data.get("key_executives"):
+                for exec_data in ticker_data["key_executives"]:
+                    key_executives.append(
+                        KeyExecutive(
+                            name=exec_data.get("name", ""),
+                            salary=exec_data.get("salary", None),
+                            function=exec_data.get("function", None),
+                            exercised=exec_data.get("exercised", None),
+                            birth_year=exec_data.get("birth_year", None)
+                        )
+                    )
+            
+            # Create the CompanyProfile
+            return CompanyProfile(
+                symbol=symbol,
+                name=ticker_data.get("name", ""),
+                stock_exchange_info=stock_exchange,
+                asset_type=ticker_data.get("item_type", "equity"),
+                currency=additional_data.get("currency", None),
+                about=ticker_data.get("about", None),
+                industry=ticker_data.get("industry", None),
+                sector=ticker_data.get("sector", None),
+                website=ticker_data.get("website", None),
+                full_time_employees=int(ticker_data.get("full_time_employees", 0)) if ticker_data.get("full_time_employees") else None,
+                ipo_date=date.fromisoformat(ticker_data.get("ipo_date")) if ticker_data.get("ipo_date") else None,
+                date_founded=date.fromisoformat(ticker_data.get("date_founded")) if ticker_data.get("date_founded") else None,
+                address_details=address,
+                phone_number=ticker_data.get("phone", None),
+                key_executives=key_executives if key_executives else None,
+                cik=additional_data.get("cik", None),
+                isin=additional_data.get("isin", None),
+                cusip=additional_data.get("cusip", None),
+                ein=ticker_data.get("ein_employer_id", None),
+                lei=additional_data.get("lei", None),
+                sic_code=ticker_data.get("sic_code", None),
+                sic_name=ticker_data.get("sic_name", None),
+                item_type=ticker_data.get("item_type", None)
+            )
         except Exception as e:
-            logger.exception(f"Unexpected error in get_company_profile for {symbol}: {e}")
+            print(f"Error fetching company profile: {e}")
             return None
-
-    def _map_dividend_item(self, item: Dict[str, Any]) -> DividendData:
-        return DividendData(
-            symbol=item["symbol"],
-            dividend_amount=float(item["dividend"]),
-            date=self._parse_iso_datetime(item.get("date")),
-            payment_date=self._parse_iso_datetime(item.get("payment_date")),
-            record_date=self._parse_iso_datetime(item.get("record_date")),
-            declaration_date=self._parse_iso_datetime(item.get("declaration_date")),
-            frequency=item.get("distr_freq")
-        )
 
     async def get_dividend_data(
         self,
         symbol: str,
         from_date: Optional[date] = None,
         to_date: Optional[date] = None,
-        exchange: Optional[str] = None 
+        exchange: Optional[str] = None
     ) -> List[DividendData]:
-        symbol_to_use = f"{symbol}.{exchange}" if exchange and exchange.strip() else symbol
-        params: Dict[str, Any] = {"symbols": symbol_to_use}
+        """
+        Get dividend data for a symbol
+        Uses MarketStack's /dividends endpoint
+        """
+        params = {"symbols": symbol}
+        
+        if exchange:
+            params["exchange"] = exchange
+        
         if from_date:
             params["date_from"] = from_date.isoformat()
+        
         if to_date:
             params["date_to"] = to_date.isoformat()
         
-        logger.info(f"Fetching dividend data for {symbol_to_use} from MarketStack v2")
         try:
-            data = await self._request(endpoint="/dividends", params=params)
-            if data and "data" in data and data["data"]:
-                return [self._map_dividend_item(item) for item in data["data"]]
+            response = await self._make_request("/dividends", params)
+            
+            if not response.get("data"):
+                return []
+            
+            dividend_data = []
+            for div in response["data"]:
+                dividend_data.append(
+                    DividendData(
+                        date=datetime.fromisoformat(div.get("date", "").replace("Z", "+00:00")),
+                        dividend=float(div.get("dividend", 0)),
+                        symbol=symbol,
+                        payment_date=datetime.fromisoformat(div.get("payment_date", "").replace("Z", "+00:00")) if div.get("payment_date") else None,
+                        record_date=datetime.fromisoformat(div.get("record_date", "").replace("Z", "+00:00")) if div.get("record_date") else None,
+                        declaration_date=datetime.fromisoformat(div.get("declaration_date", "").replace("Z", "+00:00")) if div.get("declaration_date") else None,
+                        distr_freq=div.get("distr_freq", None)
+                    )
+                )
+            
+            return dividend_data
+        except Exception as e:
+            print(f"Error fetching dividend data: {e}")
             return []
-        except MarketDataError as e:
-            logger.error(f"MarketStack get_dividend_data error for {symbol_to_use}: {e}")
-            return []
-
-    def _map_split_item(self, item: Dict[str, Any]) -> StockSplitData:
-        return StockSplitData(
-            symbol=item["symbol"],
-            date=self._parse_iso_datetime(item.get("date")),
-            split_factor=float(item["split_factor"]),
-            stock_split_ratio=item.get("stock_split", "N/A")
-        )
 
     async def get_stock_split_data(
-        self, 
-        symbol: str, 
-        from_date: Optional[date] = None, 
+        self,
+        symbol: str,
+        from_date: Optional[date] = None,
         to_date: Optional[date] = None,
         exchange: Optional[str] = None
     ) -> List[StockSplitData]:
-        symbol_to_use = f"{symbol}.{exchange}" if exchange and exchange.strip() else symbol
-        params: Dict[str, Any] = {"symbols": symbol_to_use}
+        """
+        Get stock split data for a symbol
+        Uses MarketStack's /splits endpoint
+        """
+        params = {"symbols": symbol}
+        
+        if exchange:
+            params["exchange"] = exchange
+        
         if from_date:
             params["date_from"] = from_date.isoformat()
+        
         if to_date:
             params["date_to"] = to_date.isoformat()
-
-        logger.info(f"Fetching stock splits for {symbol_to_use} from MarketStack v2")
+        
         try:
-            data = await self._request(endpoint="/splits", params=params)
-            if data and "data" in data and data["data"]:
-                return [self._map_split_item(item) for item in data["data"]]
-            return []
-        except MarketDataError as e:
-            logger.error(f"MarketStack get_stock_split_data error for {symbol_to_use}: {e}")
+            response = await self._make_request("/splits", params)
+            
+            if not response.get("data"):
+                return []
+            
+            split_data = []
+            for split in response["data"]:
+                split_data.append(
+                    StockSplitData(
+                        date=date.fromisoformat(split.get("date", "").split("T")[0]),
+                        split_factor=float(split.get("split_factor", 1.0)),
+                        symbol=symbol,
+                        stock_split=split.get("stock_split", "")
+                    )
+                )
+            
+            return split_data
+        except Exception as e:
+            print(f"Error fetching stock split data: {e}")
             return []
 
-    async def get_option_quote(self, contract_symbol: str) -> Optional[OptionQuote]:
-        logger.warning(f"MarketStackAdapter: get_option_quote for {contract_symbol} - MarketStack v2 does not seem to provide a general options endpoint in the provided documentation.")
-        return None
+    async def get_option_quote(self, contract_symbol: str) -> Optional[Any]:
+        """Placeholder for get_option_quote method"""
+        pass
 
     async def get_forex_quote(self, base_currency: str, quote_currency: str) -> Optional[ForexQuote]:
-        logger.warning(f"MarketStackAdapter: get_forex_quote for {base_currency}/{quote_currency} - MarketStack v2 /currencies endpoint lists currencies; direct pair quote endpoint not specified.")
-        return None
-
-    async def get_crypto_quote(self, base_asset: str, quote_asset: str) -> Optional[CryptoQuote]:
-        logger.warning(f"MarketStackAdapter: get_crypto_quote for {base_asset}/{quote_asset} - MarketStack v2 crypto data availability and endpoints not specified in provided documentation.")
-        return None
-
-    async def get_index_quote(self, symbol: str, exchange: Optional[str] = None) -> Optional[IndexQuote]:
-        params = {"index": symbol}
-        logger.info(f"Fetching index quote for {symbol} from MarketStack v2 using /indexinfo")
+        """
+        Get current forex exchange rate
+        Uses MarketStack's /forex endpoint
+        """
         try:
-            data = await self._request(endpoint="/indexinfo", params=params)
-            if data and isinstance(data, list) and len(data) > 0:
-                index_data = data[0]
-                return IndexQuote(
-                    symbol=index_data["benchmark"], 
-                    name=index_data["benchmark"],
-                    stock_exchange_info=None, 
-                    price=float(index_data["price"]) if index_data.get("price") else None,
-                    change=float(index_data["price_change_day"]) if index_data.get("price_change_day") else None,
-                    percentChange=float(index_data["percentage_day"].rstrip('%')) if index_data.get("percentage_day") else None,
-                    timestamp=self._parse_iso_datetime(index_data.get("date")) or datetime.now(timezone.utc),
-                    region=index_data.get("region"),
-                    country=index_data.get("country"),
-                    price_change_day_str=str(index_data.get("price_change_day")),
-                    percentage_day_str=index_data.get("percentage_day"),
-                    percentage_week_str=index_data.get("percentage_week"),
-                    percentage_month_str=index_data.get("percentage_month"),
-                    percentage_year_str=index_data.get("percentage_year"),
-                    index_info_date=self._parse_iso_datetime(index_data.get("date")).date() if self._parse_iso_datetime(index_data.get("date")) else None
-                )
-            logger.warning(f"No data returned or unexpected format for index {symbol} from /indexinfo. Response: {data}")
-            return None
-        except MarketDataError as e:
-            logger.error(f"MarketStack get_index_quote error for {symbol}: {e}")
-            return None
-        except (ValueError, TypeError, KeyError) as e:
-            logger.exception(f"Error mapping index data for {symbol}: {e}")
+            response = await self._make_request(
+                "/forex", {"base": base_currency, "quote": quote_currency}
+            )
+            
+            if response.get("status") != "ok" or not response.get("result"):
+                return None
+            
+            result = response["result"]
+            
+            return ForexQuote(
+                base_currency=base_currency,
+                quote_currency=quote_currency,
+                rate=float(result.get("rate", 0)),
+                timestamp=datetime.fromisoformat(result.get("date", "").replace("Z", "+00:00")),
+                change=float(result.get("change", 0)) if result.get("change") is not None else None,
+                percent_change=float(result.get("percent_change", 0)) if result.get("percent_change") is not None else None
+            )
+        except Exception as e:
+            print(f"Error fetching forex quote: {e}")
             return None
 
-    async def get_market_movers(
-        self,
-        market_segment: str,
-        top_n: int = 10,
-        exchange: Optional[str] = None
-    ) -> List[MarketMover]:
-        logger.warning("MarketStackAdapter: get_market_movers - MarketStack v2 does not provide a direct market movers endpoint in the provided documentation.")
+    async def get_crypto_quote(self, base_asset: str, quote_asset: str) -> Optional[Any]:
+        """Placeholder for get_crypto_quote method"""
+        pass
+
+    async def get_market_movers(self, market_segment: str, top_n: int = 10, exchange: Optional[str] = None) -> List[Any]:
+        """Placeholder for get_market_movers method"""
         return []
 
-    async def search_symbols(self, query: str, asset_type: Optional[MarketAssetType] = None, limit: int = 10) -> List[CompanyProfile]:
-        params = {"search": query, "limit": str(limit)}
-        if asset_type:
-            logger.info(f"Searching symbols for '{query}' (asset_type {asset_type} will be filtered client-side) using MarketStack v2 /tickerslist")
-        else:
-            logger.info(f"Searching symbols for '{query}' using MarketStack v2 /tickerslist")
+    async def search_symbols(
+        self,
+        query: str,
+        asset_type: Optional[MarketAssetType] = None,
+        limit: int = 10
+    ) -> List[CompanyProfile]:
+        """
+        Search for symbols based on a query string
+        Uses MarketStack's /tickerslist endpoint
+        """
+        params = {
+            "search": query,
+            "limit": limit
+        }
+        
         try:
-            data = await self._request(endpoint="/tickerslist", params=params)
-            profiles: List[CompanyProfile] = []
-            if data and "data" in data:
-                for item in data["data"]:
-                    ms_stock_exchange = item.get("stock_exchange", {})
-                    stock_ex_info = StockExchangeInfo(
-                        name=ms_stock_exchange.get("name"),
-                        acronym=ms_stock_exchange.get("acronym"),
-                        mic=ms_stock_exchange.get("mic"),
-                        country=ms_stock_exchange.get("country"),
-                        country_code=ms_stock_exchange.get("country_code")
+            response = await self._make_request("/tickerslist", params)
+            
+            if not response.get("data"):
+                return []
+            
+            search_results = []
+            for item in response["data"]:
+                # Skip if asset_type filter is provided and doesn't match
+                if asset_type and item.get("asset_type") != asset_type.value:
+                    continue
+                
+                # Create a minimal StockExchangeInfo
+                stock_exchange = StockExchangeInfo(
+                    name=item.get("stock_exchange", {}).get("name", "Unknown"),
+                    acronym=item.get("stock_exchange", {}).get("acronym", ""),
+                    mic=item.get("stock_exchange", {}).get("mic", "")
+                )
+                
+                # Create a minimal CompanyProfile for search results
+                search_results.append(
+                    CompanyProfile(
+                        symbol=item.get("ticker", ""),
+                        name=item.get("name", ""),
+                        stock_exchange_info=stock_exchange,
+                        asset_type=item.get("asset_type", "equity")
                     )
-                    
-                    current_asset_type = MarketAssetType.STOCK if item.get("has_eod") or item.get("has_intraday") else MarketAssetType.OTHER
-                    
-                    if asset_type and current_asset_type != asset_type:
-                        continue
-
-                    profile_item = CompanyProfile(
-                        symbol=item["ticker"],
-                        name=item.get("name"),
-                        stock_exchange_info=stock_ex_info,
-                        asset_type=current_asset_type
-                    )
-                    profiles.append(profile_item)
-            return profiles
-        except MarketDataError as e:
-            logger.error(f"MarketStack search_symbols error for '{query}': {e}")
+                )
+            
+            return search_results
+        except Exception as e:
+            print(f"Error searching symbols: {e}")
             return []
-
-    async def close(self):
-        await self.client.aclose()
-        logger.info("MarketStackAdapter HTTP client closed.")
